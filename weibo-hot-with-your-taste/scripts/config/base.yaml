@@ -1,0 +1,15 @@
+llm:
+  # model: "Qwen3.6-35B-A3B-C"
+  model: "deepseek-chat"
+  max_tokens: 40960
+  timeout: 180
+  temperature: 0.1
+  base_url: "http://localhost:4000"
+
+
+feishu:
+  feishu_app_id: cli_a96d3f1b49f9dccd
+  chat_id: "oc_c1eda54af48b0aecb7abd029f607c058"
+  retry_times: 3
+  retry_delay: 10
+

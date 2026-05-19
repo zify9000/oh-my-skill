@@ -26,7 +26,7 @@ r = requests.get("https://weibo.com/ajax/statuses/hot_band", timeout=10)
       {
         "word": "话题名称",
         "word_scheme": "话题标签",
-        "category": "分类名",
+        "category": "分类",
         "field_tag": "领域标签",
         "raw_hot": 1234567,
         "hot_str": "123.4万",

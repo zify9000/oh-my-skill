@@ -7,7 +7,6 @@ import json
 import os
 import re
 import logging
-from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -22,13 +21,10 @@ CONFIG_DIR = SCRIPT_DIR / "config"
 CATEGORY_STORE_PATH = DATA_DIR / "category.json"
 RULE_CONFIG_PATH = CONFIG_DIR / "rule.yaml"
 BASE_CONFIG_PATH = CONFIG_DIR / "base.yaml"
-SESSION_STATE_PATH = SCRIPT_DIR / "session_state.json"
 
 CHOICE_EXCLUDE = "exclude"
 CHOICE_STAR = "star"
 CHOICE_SKIP = "skip"
-
-VALID_CHOICES = {CHOICE_EXCLUDE, CHOICE_STAR, CHOICE_SKIP}
 
 LABEL_MAP = {
     CHOICE_EXCLUDE: "排除",
@@ -81,12 +77,13 @@ def find_unclassified_categories(keyword_store: dict, rule_config: dict) -> list
 
 def llm_classify_categories(categories: list, rule_config: dict, config: dict) -> dict:
     api_key = config.get("llm", {}).get("api_key", "")
-    if not api_key:
-        logger.warning("未找到 API_KEY，所有分类默认标记为 skip")
+    llm_cfg = config.get("llm", {})
+    if not api_key or "model" not in llm_cfg or "base_url" not in llm_cfg:
+        logger.warning("LLM 配置不完整，所有分类默认标记为 skip")
         return {cat: CHOICE_SKIP for cat in categories}
 
-    llm_model = config["llm"]["model"]
-    base_url = config["llm"]["base_url"]
+    llm_model = llm_cfg["model"]
+    base_url = llm_cfg["base_url"]
 
     exclude = rule_config.get("category_exclude", [])
     star = rule_config.get("keyword_recall", [])
@@ -164,8 +161,9 @@ def main():
     rule_config = load_rule_config()
 
     if not CATEGORY_STORE_PATH.exists():
-        logger.error("category.json 不存在，请先运行 run.py")
-        sys.exit(1)
+        result = {"ready": False, "message": "category.json 不存在，请先运行 run.py"}
+        print(json.dumps(result, ensure_ascii=False))
+        return
 
     with open(CATEGORY_STORE_PATH, encoding="utf-8") as f:
         keyword_store = json.load(f)

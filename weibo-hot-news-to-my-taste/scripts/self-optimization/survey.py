@@ -7,7 +7,7 @@ import json
 import os
 import re
 import logging
-from datetime import datetime, date
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -167,6 +167,9 @@ def call_llm_survey(unpushed: list, pushed_count: int, config: dict) -> list:
                 selected = m.group(2) == "选"
                 if 1 <= idx <= len(unpushed):
                     selections[unpushed[idx - 1]["word"]] = selected
+
+        if not selections:
+            logger.warning("LLM 回复未匹配到任何选/不选行，所有候选默认不推荐")
 
         result = []
         for n in unpushed:

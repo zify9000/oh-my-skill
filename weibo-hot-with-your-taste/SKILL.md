@@ -176,6 +176,7 @@ weibo-hot-with-your-taste/
 
 日志按日写入 `scripts/log/` 目录，同时输出到 stderr：
 
+- `feedback_YYYYMMDD.log` — 反馈记录日志
 - `push_YYYYMMDD.log` — 推送流日志
 - `survey_YYYYMMDD.log` — 调研流日志
 - `optimize_prompt_YYYYMMDD.log` — Prompt 优化日志

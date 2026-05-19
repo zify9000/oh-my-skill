@@ -1,4 +1,3 @@
-#!/opt/hermes/.venv/bin/python3
 """
 调研脚本：从未推送新闻中筛选候选，输出 JSON 供 agent 展示
 """

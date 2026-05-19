@@ -1,4 +1,3 @@
-#!/opt/hermes/.venv/bin/python3
 """反馈记录脚本：将用户反馈写入 tasted_topics.jsonl"""
 import sys
 import json

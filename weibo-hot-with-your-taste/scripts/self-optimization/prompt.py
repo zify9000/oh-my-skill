@@ -1,4 +1,3 @@
-#!/opt/hermes/.venv/bin/python3
 """
 Prompt 优化脚本：根据 tasted_topics.jsonl 中的用户品味数据优化 prompt.yaml 判断标准
 """

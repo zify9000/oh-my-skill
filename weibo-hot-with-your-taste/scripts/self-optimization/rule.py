@@ -1,4 +1,3 @@
-#!/opt/hermes/.venv/bin/python3
 """
 规则优化脚本：发现 category.json 中未归类的分类，LLM 预判归属，用户确认后更新 rule.yaml
 """

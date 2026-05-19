@@ -2,7 +2,7 @@
 
 ## 背景
 
-当前 weibo-hot-news-to-my-taste skill 有两套入口：`run.py`（一次性抓取推送）和 `server.py`（常驻飞书回调服务）。agent 调用 `run.py` 后不会主动启动 `server.py`，导致用户点击推送卡片中的 👍/👎 按钮后回调丢失，反馈流、调研流、优化流全部瘫痪。
+当前 weibo-hot-with-your-taste skill 有两套入口：`run.py`（一次性抓取推送）和 `server.py`（常驻飞书回调服务）。agent 调用 `run.py` 后不会主动启动 `server.py`，导致用户点击推送卡片中的 👍/👎 按钮后回调丢失，反馈流、调研流、优化流全部瘫痪。
 
 **根本原因**：常驻服务模型与 agent skill 的触发式用法不匹配。
 

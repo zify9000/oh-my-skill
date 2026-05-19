@@ -610,7 +610,7 @@ git commit -m "refactor: remove server.py — replaced by trigger-based conversa
 
 ```markdown
 ---
-name: weibo-hot-news-to-my-taste
+name: weibo-hot-with-your-taste
 description: 抓取微博热榜，根据用户偏好定制化筛选政治/经济/科技类新闻，通过飞书向用户推送
 category: rss
 ---
@@ -619,7 +619,7 @@ category: rss
 
 ## 目录结构
 
-weibo-hot-news-to-my-taste/
+weibo-hot-with-your-taste/
 ├── SKILL.md                  # Skill 说明文档
 ├── scripts/
 │   ├── run.py                # 主脚本：抓取 → 规则过滤 → 规则反写 → LLM核校 → 推送

@@ -352,7 +352,7 @@ def send_push_card(date_str: str, topic_items: list) -> str:
             "config": {"wide_screen_mode": True},
             "header": {
                 "title": {"tag": "plain_text", "content": "微博热榜"},
-                "template": "green"
+                "template": "red"
             },
             "elements": elements
         }, ensure_ascii=False)
@@ -417,8 +417,13 @@ def update_category_store(all_raw: list):
     store["last_updated"] = now.isoformat()
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(CATEGORY_STORE_PATH, "w", encoding="utf-8") as f:
-        json.dump(store, f, ensure_ascii=False, indent=2)
+    fd = open(CATEGORY_STORE_PATH, "w", encoding="utf-8")
+    try:
+        fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
+        json.dump(store, fd, ensure_ascii=False, indent=2)
+    finally:
+        fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
+        fd.close()
 
     if new_cats:
         logger.info(f"category.json 已更新: +{new_cats} 新分类 (共 {len(store['categories'])} 分类)")

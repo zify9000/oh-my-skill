@@ -3,12 +3,14 @@
 import sys
 import json
 import os
+import time
 import fcntl
 import argparse
 from datetime import datetime
 from pathlib import Path
 
 os.environ["TZ"] = "Asia/Shanghai"
+time.tzset()
 
 SCRIPT_DIR = Path(__file__).parent
 DATA_DIR = SCRIPT_DIR / "data"

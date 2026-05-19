@@ -14,7 +14,6 @@ weibo-hot-news-to-my-taste/
 ├── scripts/
 │   ├── run.py                # 主脚本：抓取 → 规则过滤 → 规则反写 → LLM核校 → 推送
 │   ├── feedback.py           # 反馈记录：将用户反馈写入 tasted_topics.jsonl
-│   ├── survey.py             # 调研脚本：LLM 从未推送话题中召回候选
 │   ├── config/
 │   │   ├── base.yaml         # 基础配置（LLM参数、飞书webhook、性能开关）
 │   │   ├── rule.yaml         # 规则配置（category_exclude分类排除、keyword_recall关键词反写）
@@ -26,6 +25,7 @@ weibo-hot-news-to-my-taste/
 │   │   ├── tasted_topics.jsonl # 用户品味档案（反馈+调研结果合并）
 │   │   └── reports/          # 本地运行报告
 │   └── self-optimization/
+│       ├── survey.py             # 调研脚本：LLM 从未推送话题中召回候选
 │       ├── optimize_prompt.py  # Prompt优化：根据品味数据优化判断标准
 │       └── optimize_rules.py   # 规则优化：发现未归类分类，LLM预判归属
 └── references/               # 参考文档

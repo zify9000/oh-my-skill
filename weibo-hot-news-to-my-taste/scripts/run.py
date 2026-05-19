@@ -307,14 +307,14 @@ def _send_feishu_message(token: str, chat_id: str, payload: dict):
     return result["data"]["message_id"]
 
 
-def send_push_card(date_str: str, topic_items: list, ts: str) -> bool:
+def send_push_card(date_str: str, topic_items: list, ts: str) -> str:
     """
-    发送推送卡片到飞书，每条新闻带下拉按钮（👍/👎）
+    发送推送卡片到飞书
     """
     token, _ = _get_feishu_token()
     if not token:
         logger.error("飞书认证失败")
-        return False
+        return json.dumps({"success": False, "error": "飞书认证失败"}, ensure_ascii=False)
 
     chat_id = BASE_CONFIG["feishu"]["chat_id"]
 

@@ -83,13 +83,11 @@ def find_unclassified_categories(keyword_store: dict, rule_config: dict) -> list
 
 def llm_classify_categories(categories: list, rule_config: dict, config: dict) -> dict:
     api_key = config.get("llm", {}).get("api_key", "")
-    llm_cfg = config.get("llm", {})
-    if not api_key or "model" not in llm_cfg or "base_url" not in llm_cfg:
+    llm_model = os.environ.get("llm_model", "")
+    base_url = os.environ.get("llm_base_url", "")
+    if not api_key or not llm_model or not base_url:
         logger.warning("LLM 配置不完整，所有分类默认标记为 skip")
         return {cat: CHOICE_SKIP for cat in categories}
-
-    llm_model = llm_cfg["model"]
-    base_url = llm_cfg["base_url"]
 
     exclude = rule_config.get("category_exclude", [])
     star = rule_config.get("keyword_recall", [])

@@ -61,9 +61,9 @@ def load_base_config():
 
     load_env()
 
-    feishu_chat_id = os.environ.get("FEISHU_HOME_CHANNEL")
+    feishu_chat_id = os.environ.get("feishu_chat_id", "")
     if feishu_chat_id:
-        cfg.setdefault("feishu", {})["chat_id"] = feishu_chat_id
+        cfg.setdefault("feishu", {})["feishu_chat_id"] = feishu_chat_id
 
     return cfg
 
@@ -235,8 +235,11 @@ def call_llm_judge(topic_items: list) -> list:
         logger.warning("未找到 API_KEY，跳过 LLM 评估")
         return None
 
-    llm_model = BASE_CONFIG["llm"]["model"]
-    base_url = BASE_CONFIG["llm"]["base_url"]
+    llm_model = os.environ.get("llm_model", "")
+    base_url = os.environ.get("llm_base_url", "")
+    if not llm_model or not base_url:
+        logger.warning("未配置 llm_model 或 llm_base_url 环境变量，跳过 LLM 评估")
+        return None
 
     client = openai.OpenAI(api_key=api_key, base_url=base_url)
 
@@ -288,7 +291,7 @@ def call_llm_judge(topic_items: list) -> list:
 
 
 def _get_feishu_token() -> tuple:
-    app_id = BASE_CONFIG.get("feishu", {}).get("feishu_app_id", "")
+    app_id = os.environ.get("feishu_app_id", "")
     app_secret = os.environ.get("feishu_app_secret", "")
     if not app_id or not app_secret:
         return None, None
@@ -321,7 +324,7 @@ def send_push_card(date_str: str, topic_items: list) -> str:
         logger.error("飞书认证失败")
         return json.dumps({"success": False, "error": "飞书认证失败"}, ensure_ascii=False)
 
-    chat_id = BASE_CONFIG["feishu"]["chat_id"]
+    chat_id = BASE_CONFIG["feishu"]["feishu_chat_id"]
 
     elements = []
 

@@ -165,8 +165,11 @@ def call_llm_optimize(current_prompt: str, feedback_text: str, config: dict) -> 
         logger.error("未找到 API_KEY")
         sys.exit(1)
 
-    llm_model = config["llm"]["model"]
-    base_url = config["llm"]["base_url"]
+    llm_model = os.environ.get("llm_model", "")
+    base_url = os.environ.get("llm_base_url", "")
+    if not llm_model or not base_url:
+        logger.error("未配置 llm_model 或 llm_base_url 环境变量")
+        sys.exit(1)
 
     optimize_prompt = f"""你是一个 prompt 优化专家。请根据用户反馈优化以下新闻判断 prompt。
 

@@ -110,8 +110,11 @@ def call_llm_survey(unpushed: list, pushed_count: int, config: dict) -> list:
         logger.error("未找到 API_KEY")
         sys.exit(1)
 
-    llm_model = config["llm"]["model"]
-    base_url = config["llm"]["base_url"]
+    llm_model = os.environ.get("llm_model", "")
+    base_url = os.environ.get("llm_base_url", "")
+    if not llm_model or not base_url:
+        logger.error("未配置 llm_model 或 llm_base_url 环境变量")
+        sys.exit(1)
 
     with open(PROMPT_PATH, encoding="utf-8") as f:
         prompt_data = yaml.safe_load(f)

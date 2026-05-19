@@ -26,8 +26,8 @@ weibo-hot-with-your-taste/
 │   │   └── tasted_topics.jsonl # 用户品味档案（反馈+调研结果合并）
 │   ├── log/                  # 运行日志（按日滚动）
 │   └── self-optimization/
-│       ├── optimize_prompt.py  # Prompt优化：根据品味数据优化判断标准
-│       └── optimize_rules.py   # 规则优化：发现未归类分类，LLM预判归属
+│       ├── prompt.py  # Prompt优化：根据品味数据优化判断标准
+│       └── rule.py   # 规则优化：发现未归类分类，LLM预判归属
 └── references/               # 参考文档
     └── weibo-api-header.md   # 微博 API Header 要求
 ```
@@ -39,8 +39,8 @@ weibo-hot-with-your-taste/
 | `push.py` | agent 调用 | 抓取 → 规则过滤 → 反写 → LLM核校 → 推送飞书 |
 | `feedback.py` | agent 调用 | 接收 --word/--liked 参数，写入 tasted_topics.jsonl |
 | `survey.py` | agent 调用 | 计算差集，LLM 召回候选，输出 JSON 到 stdout |
-| `optimize_prompt.py` | agent 调用 | 分析 tasted_topics.jsonl → LLM 优化 prompt，输出 diff |
-| `optimize_rules.py` | agent 调用 | 发现 category.json 未归类分类 → LLM 预判归属，输出建议 |
+| `prompt.py` | agent 调用 | 分析 tasted_topics.jsonl → LLM 优化 prompt，输出 diff |
+| `rule.py` | agent 调用 | 发现 category.json 未归类分类 → LLM 预判归属，输出建议 |
 
 ## 业务流
 
@@ -103,7 +103,7 @@ weibo-hot-with-your-taste/
 
 **工作流**：
 
-1. 执行 `python3 scripts/self-optimization/optimize_prompt.py`，获取 JSON
+1. 执行 `python3 scripts/self-optimization/prompt.py`，获取 JSON
 2. 如果 `ready=false`（反馈数据不足）→ 告知用户："反馈数据不足（当前N条，需至少M条），请先积累反馈"
 3. 如果 `ready=true` → 展示：
 
@@ -129,7 +129,7 @@ weibo-hot-with-your-taste/
 
 **工作流**：
 
-1. 执行 `python3 scripts/self-optimization/optimize_rules.py`，获取 JSON
+1. 执行 `python3 scripts/self-optimization/rule.py`，获取 JSON
 2. 如果 `ready=false` → 告知用户具体原因
 3. 如果 `ready=true` → 展示：
 
@@ -179,5 +179,5 @@ weibo-hot-with-your-taste/
 - `feedback_YYYYMMDD.log` — 反馈记录日志
 - `push_YYYYMMDD.log` — 推送流日志
 - `survey_YYYYMMDD.log` — 调研流日志
-- `optimize_prompt_YYYYMMDD.log` — Prompt 优化日志
-- `optimize_rules_YYYYMMDD.log` — 规则优化日志
+- `prompt_YYYYMMDD.log` — Prompt 优化日志
+- `rule_YYYYMMDD.log` — 规则优化日志

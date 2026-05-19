@@ -1,6 +1,6 @@
 ---
 name: weibo-hot-with-your-taste
-description: 抓取微博热榜，根据用户偏好定制化筛选政治/经济/科技类新闻，通过飞书向用户推送。支持用户通过对话即时反馈喜欢/不喜欢的新闻，支持开展偏好调研，调整筛选标准和规则，以更好地匹配用户口味。
+description: 抓取微博热榜，根据用户偏好定制化筛选热点话题（预设为政治/经济/科技类），通过飞书向用户推送。支持用户通过对话即时反馈喜欢/不喜欢的话题，支持开展偏好调研，通过用户反馈自优化筛选标准和规则，以更好地匹配用户口味。关键词：微博热点/个性化推荐/用户反馈/自优化
 category: rss
 ---
 
@@ -12,7 +12,8 @@ category: rss
 weibo-hot-with-your-taste/
 ├── SKILL.md                  # Skill 说明文档
 ├── scripts/
-│   ├── run.py                # 主脚本：抓取 → 规则过滤 → 规则反写 → LLM核校 → 推送
+│   ├── push.py               # 主脚本：抓取 → 规则过滤 → 规则反写 → LLM核校 → 推送
+│   ├── survey.py             # 调研脚本：LLM 从未推送话题中召回候选
 │   ├── feedback.py           # 反馈记录：将用户反馈写入 tasted_topics.jsonl
 │   ├── config/
 │   │   ├── base.yaml         # 基础配置（LLM参数、飞书webhook、性能开关）
@@ -20,12 +21,11 @@ weibo-hot-with-your-taste/
 │   │   └── prompt.yaml       # LLM 判断 prompt 模板
 │   ├── data/
 │   │   ├── category.json     # 分类词库（自动维护，记录微博API返回的category）
-│   │   ├── all_topics.jsonl  # 原始全量抓取数据（每次run追加）
+│   │   ├── all_topics.jsonl  # 原始全量抓取数据（每次push追加）
 │   │   ├── pushed_topics.jsonl # 已推送新闻记录
 │   │   ├── tasted_topics.jsonl # 用户品味档案（反馈+调研结果合并）
 │   │   └── reports/          # 本地运行报告
 │   └── self-optimization/
-│       ├── survey.py             # 调研脚本：LLM 从未推送话题中召回候选
 │       ├── optimize_prompt.py  # Prompt优化：根据品味数据优化判断标准
 │       └── optimize_rules.py   # 规则优化：发现未归类分类，LLM预判归属
 └── references/               # 参考文档
@@ -36,7 +36,7 @@ weibo-hot-with-your-taste/
 
 | 脚本 | 触发方式 | 职责 |
 |------|---------|------|
-| `run.py` | agent 调用 | 抓取 → 规则过滤 → 反写 → LLM核校 → 推送飞书 |
+| `push.py` | agent 调用 | 抓取 → 规则过滤 → 反写 → LLM核校 → 推送飞书 |
 | `feedback.py` | agent 调用 | 接收 --word/--liked 参数，写入 tasted_topics.jsonl |
 | `survey.py` | agent 调用 | 计算差集，LLM 召回候选，输出 JSON 到 stdout |
 | `optimize_prompt.py` | agent 调用 | 分析 tasted_topics.jsonl → LLM 优化 prompt，输出 diff |
@@ -44,7 +44,7 @@ weibo-hot-with-your-taste/
 
 ## 业务流
 
-### 1. 推送流（run.py）
+### 1. 推送流（push.py）
 
 ```
 抓取微博热榜 → 规则过滤(category字段匹配category_exclude) → 规则反写(word字段匹配keyword_recall) → LLM核校 → 推送飞书卡片
@@ -78,7 +78,7 @@ weibo-hot-with-your-taste/
 
 **工作流**：
 
-1. 执行 `python3 scripts/self-optimization/survey.py`，获取 JSON：
+1. 执行 `python3 scripts/survey.py`，获取 JSON：
    - `ready=false` → 告诉用户数据不足（如"未推送新闻不足5条，无法调研"）
    - `ready=true` → 得到 `{candidates, total_unpushed, pushed_count}`
 2. 按以下格式展示候选话题（LLM 推荐项用 🔹 标记）：

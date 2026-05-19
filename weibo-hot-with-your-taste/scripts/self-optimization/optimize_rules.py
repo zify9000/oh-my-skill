@@ -161,7 +161,7 @@ def main():
     rule_config = load_rule_config()
 
     if not CATEGORY_STORE_PATH.exists():
-        result = {"ready": False, "message": "category.json 不存在，请先运行 run.py"}
+        result = {"ready": False, "message": "category.json 不存在，请先运行 push.py"}
         print(json.dumps(result, ensure_ascii=False))
         return
 

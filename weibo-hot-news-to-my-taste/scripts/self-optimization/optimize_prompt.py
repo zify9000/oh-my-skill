@@ -44,20 +44,10 @@ logger = setup_logging()
 
 
 def load_config():
-    sys.path.insert(0, str(SCRIPT_DIR))
-    from run import load_env
-
     cfg = {}
     if BASE_CONFIG_PATH.exists():
         with open(BASE_CONFIG_PATH) as f:
             cfg = yaml.safe_load(f) or {}
-
-    load_env()
-
-    feishu_chat_id = os.environ.get("FEISHU_HOME_CHANNEL")
-    if feishu_chat_id:
-        cfg.setdefault("feishu", {})["chat_id"] = feishu_chat_id
-
     return cfg
 
 

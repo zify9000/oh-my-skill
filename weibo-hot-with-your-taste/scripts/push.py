@@ -21,7 +21,7 @@ _http_sess = curl_cffi.Session(impersonate="chrome131")
 SCRIPT_DIR = Path(__file__).parent
 CONFIG_DIR = SCRIPT_DIR / "config"
 DATA_DIR = SCRIPT_DIR / "data"
-REPORT_DIR = DATA_DIR / "reports"
+LOG_DIR = SCRIPT_DIR / "log"
 
 BASE_CONFIG_PATH = CONFIG_DIR / "base.yaml"
 RULE_CONFIG_PATH = CONFIG_DIR / "rule.yaml"
@@ -32,12 +32,17 @@ CATEGORY_STORE_PATH = DATA_DIR / "category.json"
 
 
 def setup_logging():
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_level = os.environ.get("WEIBO_HOT_NEWS_LOG_LEVEL", "INFO").upper()
+    log_file = LOG_DIR / f"push_{datetime.now().strftime('%Y%m%d')}.log"
     logging.basicConfig(
         level=getattr(logging, log_level, logging.INFO),
         format="[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        stream=sys.stderr,
+        handlers=[
+            logging.FileHandler(log_file, encoding="utf-8"),
+            logging.StreamHandler(sys.stderr),
+        ],
     )
     return logging.getLogger("weibo-hot-topics")
 
@@ -419,26 +424,6 @@ def update_category_store(all_raw: list):
         logger.info(f"category.json 已更新: +{new_cats} 新分类 (共 {len(store['categories'])} 分类)")
 
 
-def save_report(topic_items: list, total_fetched: int, feishu_ok: bool):
-    """保存报告到本地"""
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    now = datetime.now()
-    ts = now.strftime("%Y%m%d_%H%M")
-
-    record = {
-        "ts": now.isoformat(),
-        "total_fetched": total_fetched,
-        "pushed_count": len(topic_items),
-        "pushed": [n["word"] for n in topic_items],
-        "feishu_sent": feishu_ok,
-    }
-
-    filename = REPORT_DIR / f"{ts}.json"
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(record, f, ensure_ascii=False, indent=2)
-    logger.info(f"报告已保存至 {filename}")
-
-
 def main():
     """主流程：抓取 → 规则过滤 → 规则反写 → LLM核校 → 推送"""
     now = datetime.now()
@@ -491,9 +476,6 @@ def main():
 
     # 保存推送记录
     append_pushed_topics(pushed, len(all_raw))
-
-    # 保存本地报告
-    save_report(pushed, len(all_raw), feishu_ok)
 
     if not feishu_ok and pushed:
         logger.error("飞书推送失败")

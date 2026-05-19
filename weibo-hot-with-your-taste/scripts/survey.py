@@ -7,7 +7,7 @@ import json
 import os
 import re
 import logging
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import yaml
@@ -18,6 +18,7 @@ os.environ.setdefault("TZ", "Asia/Shanghai")
 SCRIPT_DIR = Path(__file__).parent  # scripts/
 DATA_DIR = SCRIPT_DIR / "data"
 CONFIG_DIR = SCRIPT_DIR / "config"
+LOG_DIR = SCRIPT_DIR / "log"
 
 ALL_TOPICS_PATH = DATA_DIR / "all_topics.jsonl"
 PUSHED_TOPICS_PATH = DATA_DIR / "pushed_topics.jsonl"
@@ -28,12 +29,17 @@ MIN_UNPUSHED_COUNT = 5
 
 
 def setup_logging():
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_level = os.environ.get("WEIBO_HOT_NEWS_LOG_LEVEL", "INFO").upper()
+    log_file = LOG_DIR / f"survey_{datetime.now().strftime('%Y%m%d')}.log"
     logging.basicConfig(
         level=getattr(logging, log_level, logging.INFO),
         format="[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        stream=sys.stderr,
+        handlers=[
+            logging.FileHandler(log_file, encoding="utf-8"),
+            logging.StreamHandler(sys.stderr),
+        ],
     )
     return logging.getLogger("survey")
 

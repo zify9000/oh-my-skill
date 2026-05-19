@@ -1,6 +1,6 @@
 ---
 name: weibo-hot-with-your-taste
-description: 抓取微博热榜，根据用户偏好定制化筛选热点话题（预设为政治/经济/科技类），通过飞书向用户推送。支持用户通过对话即时反馈喜欢/不喜欢的话题，支持开展偏好调研，通过用户反馈自优化筛选标准和规则，以更好地匹配用户口味。关键词：微博热点/个性化推荐/用户反馈/自优化
+description: 抓取微博热榜，根据用户偏好定制化筛选热点话题（预设为政治/经济/科技类），通过飞书向用户推送。支持用户通过对话即时反馈喜欢/不喜欢的话题，支持开展偏好调研，支持根据用户反馈自优化筛选标准和规则，以更好地匹配用户口味。关键词：微博热点/个性化推荐/用户反馈/自优化
 category: rss
 ---
 
@@ -23,8 +23,8 @@ weibo-hot-with-your-taste/
 │   │   ├── category.json     # 分类词库（自动维护，记录微博API返回的category）
 │   │   ├── all_topics.jsonl  # 原始全量抓取数据（每次push追加）
 │   │   ├── pushed_topics.jsonl # 已推送新闻记录
-│   │   ├── tasted_topics.jsonl # 用户品味档案（反馈+调研结果合并）
-│   │   └── reports/          # 本地运行报告
+│   │   └── tasted_topics.jsonl # 用户品味档案（反馈+调研结果合并）
+│   ├── log/                  # 运行日志（按日滚动）
 │   └── self-optimization/
 │       ├── optimize_prompt.py  # Prompt优化：根据品味数据优化判断标准
 │       └── optimize_rules.py   # 规则优化：发现未归类分类，LLM预判归属
@@ -172,16 +172,11 @@ weibo-hot-with-your-taste/
 {"ts": "2026-05-18T10:00:00", "total_fetched": 50, "topics": [{"word": "...", "category": "..."}]}
 ```
 
-## 本地报告
+## 运行日志
 
-`scripts/data/reports/YYYYMMDD_HHMM.json`
+日志按日写入 `scripts/log/` 目录，同时输出到 stderr：
 
-```json
-{
-  "ts": "2026-05-18T10:00:00",
-  "total_fetched": 50,
-  "pushed_count": 8,
-  "pushed": ["#话题1#", "#话题2#"],
-  "feishu_sent": true
-}
-```
+- `push_YYYYMMDD.log` — 推送流日志
+- `survey_YYYYMMDD.log` — 调研流日志
+- `optimize_prompt_YYYYMMDD.log` — Prompt 优化日志
+- `optimize_rules_YYYYMMDD.log` — 规则优化日志

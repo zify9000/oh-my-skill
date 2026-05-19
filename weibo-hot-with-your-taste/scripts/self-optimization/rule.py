@@ -1,5 +1,5 @@
 """
-规则优化脚本：发现 category.json 中未归类的分类，LLM 预判归属，用户确认后更新 rule.yaml
+规则优化脚本：发现 topic_category.json 中未归类的分类，LLM 预判归属，用户确认后更新 rule.yaml
 """
 import sys
 import json
@@ -19,7 +19,7 @@ DATA_DIR = SCRIPT_DIR / "data"
 CONFIG_DIR = SCRIPT_DIR / "config"
 LOG_DIR = SCRIPT_DIR / "log"
 
-CATEGORY_STORE_PATH = DATA_DIR / "category.json"
+CATEGORY_STORE_PATH = DATA_DIR / "topic_category.json"
 RULE_CONFIG_PATH = CONFIG_DIR / "rule.yaml"
 BASE_CONFIG_PATH = CONFIG_DIR / "base.yaml"
 
@@ -71,7 +71,7 @@ def load_rule_config():
 
 def find_unclassified_categories(keyword_store: dict, rule_config: dict) -> list:
     """
-    找出 category.json 中未在 rule.yaml 中归类的分类
+    找出 topic_category.json 中未在 rule.yaml 中归类的分类
     """
     all_cats = set(keyword_store.get("categories", []))
     exclude = set(rule_config.get("category_exclude", []))
@@ -167,7 +167,7 @@ def main():
     rule_config = load_rule_config()
 
     if not CATEGORY_STORE_PATH.exists():
-        result = {"ready": False, "message": "category.json 不存在，请先运行 push.py"}
+        result = {"ready": False, "message": "topic_category.json 不存在，请先运行 push.py"}
         print(json.dumps(result, ensure_ascii=False))
         return
 

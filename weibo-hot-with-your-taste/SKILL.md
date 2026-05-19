@@ -20,7 +20,7 @@ weibo-hot-with-your-taste/
 │   │   ├── rule.yaml         # 规则配置（category_exclude分类排除、keyword_recall关键词反写）
 │   │   └── prompt.yaml       # LLM 判断 prompt 模板
 │   ├── data/
-│   │   ├── category.json     # 分类词库（自动维护，记录微博API返回的category）
+│   │   ├── topic_category.json     # 分类词库（自动维护，记录微博API返回的category）
 │   │   ├── all_topics.jsonl  # 原始全量抓取数据（每次push追加）
 │   │   ├── pushed_topics.jsonl # 已推送新闻记录
 │   │   └── tasted_topics.jsonl # 用户品味档案（反馈+调研结果合并）
@@ -40,21 +40,21 @@ weibo-hot-with-your-taste/
 | `feedback.py` | agent 调用 | 接收 --word/--liked 参数，写入 tasted_topics.jsonl |
 | `survey.py` | agent 调用 | 计算差集，LLM 召回候选，输出 JSON 到 stdout |
 | `prompt.py` | agent 调用 | 分析 tasted_topics.jsonl → LLM 优化 prompt，输出 diff |
-| `rule.py` | agent 调用 | 发现 category.json 未归类分类 → LLM 预判归属，输出建议 |
+| `rule.py` | agent 调用 | 发现 topic_category.json 未归类分类 → LLM 预判归属，输出建议 |
 
 ## 业务流
 
-### 1. 推送流
+### 1. 推送
 
 ```
 抓取微博热榜 → 规则过滤(category字段匹配category_exclude) → 规则反写(word字段匹配keyword_recall) → LLM核校 → 推送飞书卡片
         ↓                    ↓                                                                          ↓
-   all_topics.jsonl       category.json                                                        pushed_topics.jsonl
+   all_topics.jsonl       topic_category.json                                                        pushed_topics.jsonl
 ```
 
 飞书卡片末尾自带提示："💬 回复序号评价本次推送，如\"1,3感兴趣\""
 
-### 2. 反馈流
+### 2. 反馈
 
 **触发词**：`推送反馈` / `反馈` / 直接给序号评价如 `1,3感兴趣` / `1和4不错，2不关心`
 
@@ -72,7 +72,7 @@ weibo-hot-with-your-taste/
 
 **注意**：如果用户未明确表态的序号（如只说"1和3感兴趣"但共有8条），不要猜测，不记录未提及的条目。
 
-### 3. 调研流
+### 3. 调研
 
 **触发词**：`偏好调研` / `调研` / `有什么我可能错过的新闻`
 
@@ -97,7 +97,7 @@ weibo-hot-with-your-taste/
 
 3. 用户回复后，解析自然语言，调用 `feedback.py` 逐条写入。未提及的条目不写入。
 
-### 4. Prompt 优化流
+### 4. Prompt 优化
 
 **触发词**：`优化prompt` / `prompt优化` / `优化判断标准`
 
@@ -123,7 +123,7 @@ weibo-hot-with-your-taste/
 4. 用户确认 → 备份 `prompt.yaml` → 写入新 prompt → 告知"prompt.yaml 已更新，旧文件备份为 prompt.yaml.bak"
 5. 用户拒绝 → 告知"已放弃，prompt 未修改"
 
-### 5. 规则优化流
+### 5. 规则优化
 
 **触发词**：`优化规则` / `规则优化` / `检查分类规则`
 

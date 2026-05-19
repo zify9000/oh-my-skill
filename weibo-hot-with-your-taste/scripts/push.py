@@ -28,7 +28,7 @@ RULE_CONFIG_PATH = CONFIG_DIR / "rule.yaml"
 PROMPT_PATH = CONFIG_DIR / "prompt.yaml"
 ALL_TOPICS_PATH = DATA_DIR / "all_topics.jsonl"
 PUSHED_TOPICS_PATH = DATA_DIR / "pushed_topics.jsonl"
-CATEGORY_STORE_PATH = DATA_DIR / "category.json"
+CATEGORY_STORE_PATH = DATA_DIR / "topic_category.json"
 
 
 def setup_logging():
@@ -390,7 +390,7 @@ def append_pushed_topics(pushed_items: list, total_fetched: int):
 
 
 def update_category_store(all_raw: list):
-    """将本次热榜的 category 写入 category.json"""
+    """将本次热榜的 category 写入 topic_category.json"""
     if not all_raw:
         return
 
@@ -402,7 +402,7 @@ def update_category_store(all_raw: list):
                 if isinstance(store.get("categories"), dict):
                     store["categories"] = list(store["categories"].keys())
         except Exception as e:
-            logger.warning(f"读取 category.json 失败，将重建: {e}")
+            logger.warning(f"读取 topic_category.json 失败，将重建: {e}")
 
     now = datetime.now()
     new_cats = 0
@@ -426,7 +426,7 @@ def update_category_store(all_raw: list):
         fd.close()
 
     if new_cats:
-        logger.info(f"category.json 已更新: +{new_cats} 新分类 (共 {len(store['categories'])} 分类)")
+        logger.info(f"topic_category.json 已更新: +{new_cats} 新分类 (共 {len(store['categories'])} 分类)")
 
 
 def main():

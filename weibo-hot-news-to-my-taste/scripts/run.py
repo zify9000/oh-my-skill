@@ -307,7 +307,7 @@ def _send_feishu_message(token: str, chat_id: str, payload: dict):
     return result["data"]["message_id"]
 
 
-def send_push_card(date_str: str, topic_items: list, ts: str) -> str:
+def send_push_card(date_str: str, topic_items: list) -> str:
     """
     发送推送卡片到飞书
     """
@@ -479,7 +479,7 @@ def main():
 
     result = None
     if pushed:
-        result = send_push_card(time_str, pushed, now.isoformat())
+        result = send_push_card(time_str, pushed)
         try:
             result_obj = json.loads(result)
             feishu_ok = result_obj.get("success", False)
@@ -487,6 +487,7 @@ def main():
             feishu_ok = False
     else:
         logger.info("无重要话题，跳过推送")
+        feishu_ok = True
 
     # 保存推送记录
     append_pushed_topics(pushed, len(all_raw))

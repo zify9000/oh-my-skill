@@ -12,9 +12,9 @@ category: rss
 weibo-hot-with-your-taste/
 ├── SKILL.md                  # Skill 说明文档
 ├── scripts/
-│   ├── push.py               # 主脚本：抓取 → 规则过滤 → 规则反写 → LLM核校 → 推送
-│   ├── survey.py             # 调研脚本：LLM 从未推送话题中召回候选
-│   ├── feedback.py           # 反馈记录：将用户反馈写入 tasted_topics.jsonl
+│   ├── push.py               # 推送热点：抓取 → 规则过滤 → 规则反写 → LLM核校 → 推送
+│   ├── survey.py             # 反馈推送：LLM 从未推送话题中召回候选
+│   ├── feedback.py           # 调研偏好：将用户反馈写入 tasted_topics.jsonl
 │   ├── config/
 │   │   ├── base.yaml         # 基础配置（LLM参数、飞书webhook、性能开关）
 │   │   ├── rule.yaml         # 规则配置（category_exclude分类排除、keyword_recall关键词反写）
@@ -44,7 +44,7 @@ weibo-hot-with-your-taste/
 
 ## 业务流
 
-### 1. 推送流（push.py）
+### 1. 推送流
 
 ```
 抓取微博热榜 → 规则过滤(category字段匹配category_exclude) → 规则反写(word字段匹配keyword_recall) → LLM核校 → 推送飞书卡片
@@ -54,7 +54,7 @@ weibo-hot-with-your-taste/
 
 飞书卡片末尾自带提示："💬 回复序号评价本次推送，如\"1,3感兴趣\""
 
-### 2. 反馈流（对话触发）
+### 2. 反馈流
 
 **触发词**：`推送反馈` / `反馈` / 直接给序号评价如 `1,3感兴趣` / `1和4不错，2不关心`
 
@@ -72,7 +72,7 @@ weibo-hot-with-your-taste/
 
 **注意**：如果用户未明确表态的序号（如只说"1和3感兴趣"但共有8条），不要猜测，不记录未提及的条目。
 
-### 3. 调研流（对话触发）
+### 3. 调研流
 
 **触发词**：`偏好调研` / `调研` / `有什么我可能错过的新闻`
 
@@ -97,7 +97,7 @@ weibo-hot-with-your-taste/
 
 3. 用户回复后，解析自然语言，调用 `feedback.py` 逐条写入。未提及的条目不写入。
 
-### 4. Prompt 优化流（对话触发）
+### 4. Prompt 优化流
 
 **触发词**：`优化prompt` / `prompt优化` / `优化判断标准`
 
@@ -123,7 +123,7 @@ weibo-hot-with-your-taste/
 4. 用户确认 → 备份 `prompt.yaml` → 写入新 prompt → 告知"prompt.yaml 已更新，旧文件备份为 prompt.yaml.bak"
 5. 用户拒绝 → 告知"已放弃，prompt 未修改"
 
-### 5. 规则优化流（对话触发）
+### 5. 规则优化流
 
 **触发词**：`优化规则` / `规则优化` / `检查分类规则`
 
@@ -158,7 +158,7 @@ weibo-hot-with-your-taste/
 
 ### tasted_topics.jsonl
 
-用户品味档案，由 `feedback.py` 唯一写入。
+用户品味档案，汇总反馈和调研结果，由 `feedback.py` 统一写入。
 
 ```json
 {"ts": "2026-05-18T10:00:00", "word": "#小米YU7#", "liked": true, "category": "科技", "recorded_at": "2026-05-18T10:05:00"}

@@ -1,6 +1,5 @@
 #!/opt/hermes/.venv/bin/python3
 """反馈记录脚本：将用户反馈写入 tasted_topics.jsonl"""
-import sys
 import json
 import os
 import time
@@ -29,14 +28,18 @@ def main():
         "ts": args.ts or datetime.now().isoformat(),
         "word": args.word,
         "liked": args.liked == "true",
+        "category": args.category,
         "recorded_at": datetime.now().isoformat(),
     }
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(TASTED_TOPICS_PATH, "a", encoding="utf-8") as f:
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
-        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    fd = open(TASTED_TOPICS_PATH, "a", encoding="utf-8")
+    try:
+        fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
+        fd.write(json.dumps(record, ensure_ascii=False) + "\n")
+    finally:
+        fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
+        fd.close()
 
     print(json.dumps({"status": "ok", "word": args.word, "liked": args.liked == "true"}, ensure_ascii=False))
 

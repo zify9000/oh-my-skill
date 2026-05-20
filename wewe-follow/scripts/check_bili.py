@@ -85,14 +85,28 @@ _bili_session = None
 def _get_session():
     global _bili_session
     if _bili_session is None:
+        # 从环境变量构建 B站 Cookie
+        cookies = {}
+        sessdata = os.environ.get("BILI_SESSDATA", "")
+        jct = os.environ.get("BILI_JCT", "")
+        buvid3 = os.environ.get("BILI_BUVID3", "")
+        if sessdata:
+            cookies["SESSDATA"] = sessdata
+        if jct:
+            cookies["bili_jct"] = jct
+        if buvid3:
+            cookies["buvid3"] = buvid3
+        if not cookies:
+            cookies = {"buvid3": "infoc", "buvid4": "infoc"}
+
         _bili_session = curl.Session()
         _bili_session.headers.update({
             "User-Agent": USER_AGENT,
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
             "Origin": "https://www.bilibili.com",
-            "Cookie": "buvid3=infoc; buvid4=infoc",
         })
+        _bili_session.cookies.update(cookies)
     return _bili_session
 
 

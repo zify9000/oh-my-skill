@@ -378,6 +378,107 @@ def main():
     return output
 
 
+# ═══════════════════════════════════════════════════════════
+# 飞书推送
+# ═══════════════════════════════════════════════════════════
+
+
+def _get_feishu_token() -> str | None:
+    app_id = os.environ.get("feishu_app_id", "")
+    app_secret = os.environ.get("feishu_app_secret", "")
+    if not app_id or not app_secret:
+        return None
+    resp = requests.post(
+        "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+        json={"app_id": app_id, "app_secret": app_secret},
+        timeout=10,
+    )
+    return resp.json()["tenant_access_token"]
+
+
+def _send_feishu_card(token: str, chat_id: str, payload: dict):
+    url = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
+    resp = requests.post(
+        url,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=15,
+    )
+    result = resp.json()
+    if result.get("code") != 0:
+        raise RuntimeError(f"飞书发送失败: code={result.get('code')} msg={result.get('msg')}")
+
+
+def push_to_feishu(results: list[dict], summary: dict):
+    """组装飞书卡片并发送。"""
+    chat_id = os.environ.get("feishu_chat_id", "")
+    if not chat_id:
+        print(json.dumps({"push_error": "feishu_chat_id 未配置"}))
+        return
+
+    token = _get_feishu_token()
+    if not token:
+        print(json.dumps({"push_error": "飞书 token 获取失败，检查 feishu_app_id / feishu_app_secret"}))
+        return
+
+    status_emoji = {"updated": "🆕", "new": "📌", "no_change": "✅", "removed": "❌"}
+
+    elements = []
+    for r in results:
+        name = r["name"]
+        emoji = status_emoji.get(r["status"], "❓")
+        line = f"{emoji} **{name}**"
+
+        if r.get("has_new_video") and r.get("last_video"):
+            v = r["last_video"]
+            line += f" 🎬{v['title']} | {format_timestamp(v['pubdate'])}"
+        if r.get("has_new_dynamic") and r.get("last_dynamic"):
+            d = r["last_dynamic"]
+            text = d['content'][:60].replace('\n', ' ') if d['content'] else "[图片]"
+            line += f" 📝{text} | {format_timestamp(d['timestamp'])}"
+
+        if r["status"] == "no_change":
+            if r.get("last_video"):
+                line += f" 最后视频: {format_timestamp(r['last_video']['pubdate'])}"
+            if r.get("last_dynamic"):
+                line += f" 最后动态: {format_timestamp(r['last_dynamic']['timestamp'])}"
+
+        line += f"  [打开]({r['deep_link']})"
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": line}})
+        elements.append({"tag": "hr"})
+
+    total = summary["total"]
+    updated = summary["updated"]
+    new = summary["new"]
+    elements.append({
+        "tag": "div",
+        "text": {"tag": "lark_md", "content": f"共 {total} 个 | 🆕更新 {updated} | 📌新增 {new}"}
+    })
+    elements.append({
+        "tag": "div",
+        "text": {
+            "tag": "lark_md",
+            "content": f"🕐 {datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M')}"
+        }
+    })
+
+    payload = {
+        "receive_id": chat_id,
+        "msg_type": "interactive",
+        "content": json.dumps({
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"tag": "plain_text", "content": "📺 B站UP主更新"},
+                "template": "blue"
+            },
+            "elements": elements
+        }, ensure_ascii=False)
+    }
+
+    _send_feishu_card(token, chat_id, payload)
+    print(json.dumps({"push_success": True, "pushed_count": len(results)}))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="B站UP主更新检查")
     parser.add_argument("--push", action="store_true", help="同时推送到飞书")

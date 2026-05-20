@@ -76,11 +76,14 @@ def save_state(state: dict):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
-def bili_headers() -> dict:
+def bili_headers(referer: str | None = None) -> dict:
     """B站 API 基础请求头。"""
     return {
         "User-Agent": USER_AGENT,
-        "Referer": "https://www.bilibili.com/",
+        "Referer": referer or "https://www.bilibili.com/",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Origin": "https://www.bilibili.com",
     }
 
 
@@ -91,15 +94,27 @@ def format_timestamp(ts: int) -> str:
     return datetime.fromtimestamp(ts, tz=timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _api_call(url: str, params: dict, timeout: int = 15) -> dict:
-    """封装 GET 请求 + 错误检测。"""
-    resp = requests.get(url, params=params, headers=bili_headers(), timeout=timeout)
-    resp.raise_for_status()
-    data = resp.json()
-    code = data.get("code", -1)
-    if code != 0:
-        raise RuntimeError(f"B站API错误: code={code} message={data.get('message', 'unknown')} url={url}")
-    return data
+def _api_call(url: str, params: dict, timeout: int = 15, referer: str | None = None) -> dict:
+    """封装 GET 请求 + 错误检测，遇限频自动重试一次。"""
+
+    def _do():
+        return requests.get(url, params=params, headers=bili_headers(referer), timeout=timeout)
+
+    for attempt in range(2):
+        resp = _do()
+        if resp.status_code in (412, 429):
+            time.sleep(2)
+            continue
+        resp.raise_for_status()
+        data = resp.json()
+        code = data.get("code", -1)
+        if code in (-799, -412):
+            time.sleep(2)
+            continue
+        if code != 0:
+            raise RuntimeError(f"B站API错误: code={code} message={data.get('message', 'unknown')} url={url}")
+        return data
+    raise RuntimeError(f"B站API请求被拒: url={url}")
 
 
 # ═══════════════════════════════════════════════════════════
@@ -163,7 +178,10 @@ def fetch_up主_info(uid: str) -> dict:
 
 def fetch_latest_video(uid: str) -> dict | None:
     """获取 UP 主最新视频。返回 {bvid, title, desc, cover, pubdate} 或 None。"""
-    data = _api_call(ARC_SEARCH_URL, {"mid": uid, "ps": 1, "order": "pubdate"})
+    data = _api_call(
+        ARC_SEARCH_URL, {"mid": uid, "ps": 1, "order": "pubdate"},
+        referer=f"https://space.bilibili.com/{uid}/video",
+    )
     vlist = data.get("data", {}).get("list", {}).get("vlist", [])
     if not vlist:
         return None
@@ -337,10 +355,11 @@ def main():
         uid = uid_map[name]
         try:
             info = fetch_up主_info(uid)
+            time.sleep(2)
             video = fetch_latest_video(uid)
-            time.sleep(0.5)
+            time.sleep(2)
             dynamic = fetch_latest_dynamic(uid)
-            time.sleep(0.5)
+            time.sleep(2)
         except Exception as e:
             errors.append({"name": name, "uid": uid, "error": str(e)})
             continue

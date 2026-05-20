@@ -134,7 +134,11 @@ def resolve_uids(names: list[str], state: dict) -> tuple[dict[str, str], list[st
         if name in uid_cache:
             uid_map[name] = uid_cache[name]
         else:
-            result = search_up主(name)
+            try:
+                result = search_up主(name)
+            except Exception:
+                failures.append(name)
+                continue
             if result is None:
                 failures.append(name)
             else:

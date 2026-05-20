@@ -100,3 +100,106 @@ def _api_call(url: str, params: dict, timeout: int = 15) -> dict:
     if code != 0:
         raise RuntimeError(f"B站API错误: code={code} message={data.get('message', 'unknown')} url={url}")
     return data
+
+
+# ═══════════════════════════════════════════════════════════
+# B站 API 调用
+# ═══════════════════════════════════════════════════════════
+
+def search_up主(name: str) -> dict | None:
+    """按名称搜索UP主，返回 {'uid': str, 'name': str} 或 None。"""
+    data = _api_call(SEARCH_URL, {"search_type": "bili_user", "keyword": name})
+    results = data.get("data", {}).get("result", [])
+    if not results:
+        return None
+    # 精确匹配优先
+    for r in results:
+        if r.get("uname", "").strip() == name.strip():
+            return {"uid": str(r["mid"]), "name": r["uname"]}
+    # 无精确匹配，取第一个
+    first = results[0]
+    return {"uid": str(first["mid"]), "name": first["uname"]}
+
+
+def resolve_uids(names: list[str], state: dict) -> tuple[dict[str, str], list, dict]:
+    """解析名称→UID，优先从缓存读取，未命中则搜索。
+
+    返回 (uid_map: {name: uid}, failures: [name], updated_state)
+    """
+    uid_cache = state.get("uid_cache", {})
+    uid_map = {}
+    failures = []
+    dirty = False
+
+    for name in names:
+        if name in uid_cache:
+            uid_map[name] = uid_cache[name]
+        else:
+            result = search_up主(name)
+            if result is None:
+                failures.append(name)
+            else:
+                uid_map[name] = result["uid"]
+                uid_cache[name] = result["uid"]
+                dirty = True
+            time.sleep(0.5)  # 搜索接口限频
+
+    state["uid_cache"] = uid_cache
+    return uid_map, failures, state
+
+
+def fetch_up主_info(uid: str) -> dict:
+    """获取 UP 主基本信息 name/sign/face。"""
+    data = _api_call(SPACE_INFO_URL, {"mid": uid})
+    d = data["data"]
+    return {
+        "name": d.get("name", ""),
+        "sign": d.get("sign", ""),
+        "face": d.get("face", ""),
+    }
+
+
+def fetch_latest_video(uid: str) -> dict | None:
+    """获取 UP 主最新视频。返回 {bvid, title, desc, cover, pubdate} 或 None。"""
+    data = _api_call(ARC_SEARCH_URL, {"mid": uid, "ps": 1, "order": "pubdate"})
+    vlist = data.get("data", {}).get("list", {}).get("vlist", [])
+    if not vlist:
+        return None
+    v = vlist[0]
+    return {
+        "bvid": v.get("bvid", ""),
+        "title": v.get("title", ""),
+        "desc": v.get("description", ""),
+        "cover": v.get("pic", ""),
+        "pubdate": v.get("created", 0),
+    }
+
+
+def fetch_latest_dynamic(uid: str) -> dict | None:
+    """获取 UP 主最新图文动态（排除转发和视频发布）。"""
+    data = _api_call(DYNAMIC_FEED_URL, {"host_mid": uid, "offset": ""})
+    items = data.get("data", {}).get("items", [])
+    for item in items:
+        dtype = item.get("type", "")
+        if dtype not in TRACKED_DYNAMIC_TYPES:
+            continue
+        modules = item.get("modules", {})
+        desc_text = ""
+        desc = modules.get("module_dynamic", {}).get("desc", {})
+        if desc:
+            desc_text = desc.get("text", "")
+
+        images = []
+        major = modules.get("module_dynamic", {}).get("major", {})
+        if major.get("type") == "MAJOR_TYPE_DRAW":
+            for img in major.get("draw", {}).get("items", []):
+                images.append(img.get("src", ""))
+
+        author = modules.get("module_author", {})
+        return {
+            "id_str": item.get("id_str", ""),
+            "content": desc_text,
+            "images": images,
+            "timestamp": author.get("pub_ts", 0),
+        }
+    return None

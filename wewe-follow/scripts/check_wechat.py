@@ -55,9 +55,9 @@ def load_config() -> set:
 
 def get_api_key():
     """获取微信读书 API Key。"""
-    api_key = os.environ.get("WEREAD_API_KEY", "")
+    api_key = os.environ.get("weread_api_key", "")
     if not api_key:
-        print(json.dumps({"error": "WEREAD_API_KEY 未设置，请在 .env 中配置"}))
+        print(json.dumps({"error": "weread_api_key 未设置，请在 .env 中配置"}))
         sys.exit(1)
     return api_key
 

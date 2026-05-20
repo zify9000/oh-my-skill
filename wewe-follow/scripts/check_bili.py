@@ -87,9 +87,9 @@ def _get_session():
     if _bili_session is None:
         # 从环境变量构建 B站 Cookie
         cookies = {}
-        sessdata = os.environ.get("BILI_SESSDATA", "")
-        jct = os.environ.get("BILI_JCT", "")
-        buvid3 = os.environ.get("BILI_BUVID3", "")
+        sessdata = os.environ.get("bili_sessdata", "")
+        jct = os.environ.get("bili_jct", "")
+        buvid3 = os.environ.get("bili_buvid3", "")
         if sessdata:
             cookies["SESSDATA"] = sessdata
         if jct:

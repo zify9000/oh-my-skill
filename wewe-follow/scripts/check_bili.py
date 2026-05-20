@@ -118,10 +118,10 @@ def search_up主(name: str) -> dict | None:
             return {"uid": str(r["mid"]), "name": r["uname"]}
     # 无精确匹配，取第一个
     first = results[0]
-    return {"uid": str(first["mid"]), "name": first["uname"]}
+    return {"uid": str(first.get("mid", "")), "name": first.get("uname", "")}
 
 
-def resolve_uids(names: list[str], state: dict) -> tuple[dict[str, str], list, dict]:
+def resolve_uids(names: list[str], state: dict) -> tuple[dict[str, str], list[str], dict]:
     """解析名称→UID，优先从缓存读取，未命中则搜索。
 
     返回 (uid_map: {name: uid}, failures: [name], updated_state)
@@ -129,7 +129,6 @@ def resolve_uids(names: list[str], state: dict) -> tuple[dict[str, str], list, d
     uid_cache = state.get("uid_cache", {})
     uid_map = {}
     failures = []
-    dirty = False
 
     for name in names:
         if name in uid_cache:
@@ -141,7 +140,6 @@ def resolve_uids(names: list[str], state: dict) -> tuple[dict[str, str], list, d
             else:
                 uid_map[name] = result["uid"]
                 uid_cache[name] = result["uid"]
-                dirty = True
             time.sleep(0.5)  # 搜索接口限频
 
     state["uid_cache"] = uid_cache
@@ -151,7 +149,7 @@ def resolve_uids(names: list[str], state: dict) -> tuple[dict[str, str], list, d
 def fetch_up主_info(uid: str) -> dict:
     """获取 UP 主基本信息 name/sign/face。"""
     data = _api_call(SPACE_INFO_URL, {"mid": uid})
-    d = data["data"]
+    d = data.get("data", {})
     return {
         "name": d.get("name", ""),
         "sign": d.get("sign", ""),
@@ -186,7 +184,7 @@ def fetch_latest_dynamic(uid: str) -> dict | None:
         modules = item.get("modules", {})
         desc_text = ""
         desc = modules.get("module_dynamic", {}).get("desc", {})
-        if desc:
+        if isinstance(desc, dict) and desc:
             desc_text = desc.get("text", "")
 
         images = []

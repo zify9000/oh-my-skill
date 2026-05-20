@@ -201,3 +201,188 @@ def fetch_latest_dynamic(uid: str) -> dict | None:
             "timestamp": author.get("pub_ts", 0),
         }
     return None
+
+
+# ═══════════════════════════════════════════════════════════
+# 状态对比
+# ═══════════════════════════════════════════════════════════
+
+def compare_status(fresh_data: list[dict], state: dict) -> list[dict]:
+    """将最新数据与本地状态对比，判定每个UP主的状态。"""
+    prev_accounts = state.get("accounts", {})
+    results = []
+
+    for up in fresh_data:
+        name = up["name"]
+        prev = prev_accounts.get(name)
+
+        if prev is None:
+            status = "new"
+            has_new_video = up["last_video"] is not None
+            has_new_dynamic = up["last_dynamic"] is not None
+        else:
+            has_new_video = _video_changed(up.get("last_video"), prev.get("last_video"))
+            has_new_dynamic = _dynamic_changed(up.get("last_dynamic"), prev.get("last_dynamic"))
+            status = "updated" if (has_new_video or has_new_dynamic) else "no_change"
+
+        results.append({
+            "name": name,
+            "uid": up["uid"],
+            "sign": up.get("sign", ""),
+            "face": up.get("face", ""),
+            "status": status,
+            "has_new_video": has_new_video,
+            "has_new_dynamic": has_new_dynamic,
+            "last_video": up.get("last_video"),
+            "last_dynamic": up.get("last_dynamic"),
+            "deep_link": f"https://space.bilibili.com/{up['uid']}",
+        })
+
+    # 检测已取关
+    current_names = {up["name"] for up in fresh_data}
+    for name, info in prev_accounts.items():
+        if name not in current_names:
+            results.append({
+                "name": name,
+                "uid": info.get("uid", ""),
+                "sign": info.get("sign", ""),
+                "face": info.get("face", ""),
+                "status": "removed",
+                "has_new_video": False,
+                "has_new_dynamic": False,
+                "last_video": info.get("last_video"),
+                "last_dynamic": info.get("last_dynamic"),
+                "deep_link": f"https://space.bilibili.com/{info.get('uid', '')}",
+            })
+
+    return results
+
+
+def _video_changed(new_v: dict | None, old_v: dict | None) -> bool:
+    """视频是否有更新。"""
+    if not new_v:
+        return False
+    if not old_v:
+        return True
+    return new_v.get("pubdate", 0) > old_v.get("pubdate", 0)
+
+
+def _dynamic_changed(new_d: dict | None, old_d: dict | None) -> bool:
+    """动态是否有更新（id_str 不同即为新）。"""
+    if not new_d:
+        return False
+    if not old_d:
+        return True
+    return new_d.get("id_str", "") != old_d.get("id_str", "")
+
+
+def build_new_state(results: list[dict], state: dict, uid_map: dict[str, str]) -> dict:
+    """从结果构建新的状态快照。"""
+    accounts = {}
+    for r in results:
+        if r["status"] == "removed":
+            continue
+        name = r["name"]
+        accounts[name] = {
+            "uid": r["uid"],
+            "name": name,
+            "sign": r.get("sign", ""),
+            "face": r.get("face", ""),
+            "last_video": r.get("last_video"),
+            "last_dynamic": r.get("last_dynamic"),
+        }
+
+    # 为 uid_map 中所有名称补齐缓存
+    uid_cache = state.get("uid_cache", {})
+    for name, uid in uid_map.items():
+        uid_cache[name] = uid
+
+    return {
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "uid_cache": uid_cache,
+        "accounts": accounts,
+    }
+
+
+# ═══════════════════════════════════════════════════════════
+# 主流程
+# ═══════════════════════════════════════════════════════════
+
+def main():
+    load_env()
+
+    # 1. 加载配置
+    target_names = load_config()
+    if not target_names:
+        print(json.dumps({"error": "config.yaml 中 bili 段为空，请在配置中指定要追踪的UP主名称"}))
+        sys.exit(1)
+
+    # 2. 加载状态
+    state = load_state()
+
+    # 3. 名称 → UID
+    uid_map, failures, state = resolve_uids(target_names, state)
+    if failures:
+        print(json.dumps({"error": f"未找到以下UP主: {', '.join(failures)}，请检查 config.yaml 中的名称"}))
+        sys.exit(1)
+
+    # 4. 遍历 UP 主获取数据
+    fresh_data = []
+    errors = []
+    for name in target_names:
+        uid = uid_map[name]
+        try:
+            info = fetch_up主_info(uid)
+            video = fetch_latest_video(uid)
+            time.sleep(0.5)
+            dynamic = fetch_latest_dynamic(uid)
+            time.sleep(0.5)
+        except Exception as e:
+            errors.append({"name": name, "uid": uid, "error": str(e)})
+            continue
+
+        fresh_data.append({
+            "uid": uid,
+            "name": name,
+            "sign": info["sign"],
+            "face": info["face"],
+            "last_video": video,
+            "last_dynamic": dynamic,
+        })
+
+    # 5. 状态对比
+    results = compare_status(fresh_data, state)
+
+    # 6. 更新状态文件
+    new_state = build_new_state(results, state, uid_map)
+    save_state(new_state)
+
+    # 7. 输出
+    summary = {
+        "total": len(fresh_data),
+        "updated": sum(1 for r in results if r["status"] == "updated"),
+        "no_change": sum(1 for r in results if r["status"] == "no_change"),
+        "new": sum(1 for r in results if r["status"] == "new"),
+        "removed": sum(1 for r in results if r["status"] == "removed"),
+    }
+
+    output = {
+        "checked_at": new_state["checked_at"],
+        "summary": summary,
+        "accounts": results,
+    }
+    if errors:
+        output["errors"] = errors
+
+    print(json.dumps(output, ensure_ascii=False))
+    return output
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="B站UP主更新检查")
+    parser.add_argument("--push", action="store_true", help="同时推送到飞书")
+    args = parser.parse_args()
+
+    output = main()
+    if args.push:
+        push_to_feishu(output["accounts"], output["summary"])

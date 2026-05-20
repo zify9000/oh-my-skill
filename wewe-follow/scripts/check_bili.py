@@ -1,3 +1,4 @@
+#!/home/zify/miniconda3/bin/python3
 """检查B站UP主的更新状态（新视频、图文动态），可选推送飞书卡片。
 
 通过 B站公开 API 获取 UP 主最新视频和图文动态，
@@ -11,7 +12,8 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-import requests
+import requests  # for feishu API
+from curl_cffi import requests as curl  # for B站 API (TLS impersonation)
 
 # ── 路径常量 ──────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -76,32 +78,31 @@ def save_state(state: dict):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
-def bili_headers(referer: str | None = None) -> dict:
-    """B站 API 基础请求头。"""
-    return {
-        "User-Agent": USER_AGENT,
-        "Referer": referer or "https://www.bilibili.com/",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        "Origin": "https://www.bilibili.com",
-    }
+# B站 API Session（带 TLS 指纹伪装）
+_bili_session = None
 
 
-def format_timestamp(ts: int) -> str:
-    """Unix 时间戳 → Asia/Shanghai 时间字符串。"""
-    if not ts:
-        return ""
-    return datetime.fromtimestamp(ts, tz=timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+def _get_session():
+    global _bili_session
+    if _bili_session is None:
+        _bili_session = curl.Session()
+        _bili_session.headers.update({
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Origin": "https://www.bilibili.com",
+            "Cookie": "buvid3=infoc; buvid4=infoc",
+        })
+    return _bili_session
 
 
 def _api_call(url: str, params: dict, timeout: int = 15, referer: str | None = None) -> dict:
     """封装 GET 请求 + 错误检测，遇限频自动重试一次。"""
+    s = _get_session()
+    h = {"Referer": referer} if referer else {}
 
-    def _do():
-        return requests.get(url, params=params, headers=bili_headers(referer), timeout=timeout)
-
-    for attempt in range(2):
-        resp = _do()
+    for _ in range(2):
+        resp = s.get(url, params=params, headers=h, impersonate="chrome131", timeout=timeout)
         if resp.status_code in (412, 429):
             time.sleep(2)
             continue
@@ -116,6 +117,12 @@ def _api_call(url: str, params: dict, timeout: int = 15, referer: str | None = N
         return data
     raise RuntimeError(f"B站API请求被拒: url={url}")
 
+
+def format_timestamp(ts: int) -> str:
+    """Unix 时间戳 → Asia/Shanghai 时间字符串。"""
+    if not ts:
+        return ""
+    return datetime.fromtimestamp(ts, tz=timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
 
 # ═══════════════════════════════════════════════════════════
 # B站 API 调用
@@ -159,7 +166,7 @@ def resolve_uids(names: list[str], state: dict) -> tuple[dict[str, str], list[st
             else:
                 uid_map[name] = result["uid"]
                 uid_cache[name] = result["uid"]
-            time.sleep(0.5)  # 搜索接口限频
+            time.sleep(2)  # 搜索接口限频
 
     state["uid_cache"] = uid_cache
     return uid_map, failures, state
@@ -197,7 +204,10 @@ def fetch_latest_video(uid: str) -> dict | None:
 
 def fetch_latest_dynamic(uid: str) -> dict | None:
     """获取 UP 主最新图文动态（排除转发和视频发布）。"""
-    data = _api_call(DYNAMIC_FEED_URL, {"host_mid": uid, "offset": ""})
+    data = _api_call(
+        DYNAMIC_FEED_URL, {"host_mid": uid},
+        referer=f"https://space.bilibili.com/{uid}/dynamic",
+    )
     items = data.get("data", {}).get("items", [])
     for item in items:
         dtype = item.get("type", "")

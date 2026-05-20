@@ -365,11 +365,11 @@ def main():
         uid = uid_map[name]
         try:
             info = fetch_up主_info(uid)
-            time.sleep(2)
+            time.sleep(5)
             video = fetch_latest_video(uid)
-            time.sleep(2)
+            time.sleep(5)
             dynamic = fetch_latest_dynamic(uid)
-            time.sleep(2)
+            time.sleep(5)
         except Exception as e:
             errors.append({"name": name, "uid": uid, "error": str(e)})
             continue

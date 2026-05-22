@@ -85,18 +85,23 @@ bili:
 **工作流**：
 
 1. 执行 `cd /home/zify/myProject/oh-my-skill/wewe-follow/scripts && python3 check_wechat.py`，获取 JSON 输出
-2. 按以下格式展示结果：
+2. 按以下格式展示结果（**必须使用 markdown 链接语法，`[文本](weread://...)` 不可简化为纯文本**）：
 
 ```
 📚 公众号更新检查（共 2 个）
 
 🆕 有更新：
-1. 猫笔刀 — 最后更新: 2025-05-30  [打开](weread://reading?bId=MP_WXS_3198966508)
+1. 猫笔刀 — 最后更新: 2025-05-30  [打开阅读](weread://reading?bId=MP_WXS_3198966508)
 
 ✅ 无新内容：
-2. 重燃阅读 — 最后更新: 2025-05-29  [打开](weread://reading?bId=MP_WXS_2392369754)
+2. 重燃阅读 — 最后更新: 2025-05-29  [打开阅读](weread://reading?bId=MP_WXS_2392369754)
 ```
 
+**链接格式硬性要求**：
+- 每条公众号/UP主后面必须跟随 `[打开阅读](weread://reading?bId={bookId})` 格式的 markdown 链接
+- 禁止用纯文本（如 "📖 打开阅读"）替代 markdown 链接
+- 禁止省略 `[]()` 语法，确保渲染为可点击的超链接
+- `bookId` 从 JSON 的 `accounts[].bookId` 取
 3. 如果有 `new` 状态的公众号，用 📌 标记并提示"新关注的公众号"
 4. 如果有 `removed` 状态的公众号，提示"以下公众号已不在书架上：xxx"
 
@@ -117,20 +122,22 @@ bili:
 **工作流**：
 
 1. 执行 `cd /home/zify/myProject/oh-my-skill/wewe-follow/scripts && python3 check_bili.py`，获取 JSON 输出
-2. 按以下格式展示结果：
+2. 按以下格式展示结果（**必须使用 markdown 链接语法，不可用纯文本替代**）：
 
 ```
 📺 B站UP主更新检查（共 2 个）
 
 🆕 有更新（视频）：
-1. 稚晖君 — 🎬新视频: 我做了个机械臂 / 2025-05-20 10:30  [打开](https://space.bilibili.com/20259914)
+1. 稚晖君 — 🎬新视频: 我做了个机械臂 / 2025-05-20 10:30  [打开主页](https://space.bilibili.com/20259914)
 
 🆕 有更新（动态）：
-2. LinusTechTips — 📝新动态: 本周硬件速递... / 2025-05-20 09:00  [打开](https://space.bilibili.com/123456)
+2. LinusTechTips — 📝新动态: 本周硬件速递... / 2025-05-20 09:00  [打开主页](https://space.bilibili.com/123456)
 
 ✅ 无新内容：
 3. 某UP主 — 最后视频: 2025-05-15 / 最后动态: 2025-05-18
 ```
+
+**链接格式硬性要求**：每条 UP 主后面必须跟随 markdown 链接 `[打开主页](https://space.bilibili.com/{uid})`，`uid` 从 JSON 的 `accounts[].uid` 取。
 
 3. 展示规则：
    - 先展示 🆕 有更新的（视频优先于动态），再展示 ✅ 无新内容的
@@ -152,7 +159,8 @@ bili:
 ## 展示规范
 
 - **时间戳**：所有 Unix 时间戳展示为 YYYY-MM-DD 格式
-- **微信读书深度链接**：每个公众号附上 `weread://reading?bId={bookId}` 跳转链接
-- **B站深度链接**：B站为 UP 主空间首页 `https://space.bilibili.com/{uid}`
+- **微信读书深度链接**：每条公众号末尾必须用 markdown 语法 `[打开阅读](weread://reading?bId={bookId})` 渲染为可点击链接
+- **B站深度链接**：每条 UP 主末尾必须用 markdown 语法 `[打开主页](https://space.bilibili.com/{uid})` 渲染为可点击链接
+- **禁止**：将链接输出为纯文本（如 "📖 打开阅读"），必须使用 `[文本](URL)` 语法
 - **公众号状态标记**：🆕 有更新 / ✅ 无新内容 / 📌 新关注 / ❌ 已取关
 - **B站标记**：🎬新视频 / 📝新动态

@@ -490,8 +490,16 @@ def push_to_feishu(results: list[dict], summary: dict):
             if r.get("last_dynamic"):
                 line += f" 最后动态: {format_timestamp(r['last_dynamic']['timestamp'])}"
 
-        line += f"  [打开]({r['deep_link']})"
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": line}})
+        elements.append({
+            "tag": "action",
+            "actions": [{
+                "tag": "button",
+                "text": {"tag": "plain_text", "content": "📺 打开主页"},
+                "type": "default",
+                "url": r['deep_link'],
+            }]
+        })
         elements.append({"tag": "hr"})
 
     total = summary["total"]

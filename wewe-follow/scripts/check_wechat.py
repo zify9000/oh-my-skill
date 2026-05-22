@@ -215,7 +215,16 @@ def push_to_feishu(results: list[dict], summary: dict):
 
         elements.append({
             "tag": "div",
-            "text": {"tag": "lark_md", "content": f"{emoji} **{name}** 更新:{update} 阅读:{read} {unread}  [打开]({link})"}
+            "text": {"tag": "lark_md", "content": f"{emoji} **{name}** 更新:{update} 阅读:{read} {unread}"}
+        })
+        elements.append({
+            "tag": "action",
+            "actions": [{
+                "tag": "button",
+                "text": {"tag": "plain_text", "content": "📖 打开阅读"},
+                "type": "default",
+                "url": link,
+            }]
         })
         elements.append({"tag": "hr"})
 

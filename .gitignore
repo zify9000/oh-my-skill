@@ -1,4 +1,3 @@
 docs/
 *.code-workspace
-scripts/env/.llm.env
-scripts/env/.feishu.env
+*.env

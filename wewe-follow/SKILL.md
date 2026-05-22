@@ -112,7 +112,7 @@ bili:
 **工作流**：
 
 1. 执行 `cd /home/zify/myProject/oh-my-skill/wewe-follow/scripts && python3 check_wechat.py --push`
-2. 发送飞书卡片，包含所有公众号的更新状态、文章标题和阅读链接
+2. 卡片格式：每条公众号显示更新状态后，附带一个 `📖 打开阅读` 按钮（飞书 `action` button 元素，`url` 为 `weread://reading?bId={bookId}`）。按钮可跳转微信读书 App。
 3. 不需要额外回复，用户会在飞书收到卡片
 
 ### 3. 检查B站更新
@@ -153,14 +153,14 @@ bili:
 **工作流**：
 
 1. 执行 `cd /home/zify/myProject/oh-my-skill/wewe-follow/scripts && python3 check_bili.py --push`
-2. 发送飞书卡片，包含所有 UP 主的更新状态、视频标题、动态摘要和空间链接
+2. 卡片格式：每条 UP 主显示更新状态后，附带一个 `📺 打开主页` 按钮（飞书 `action` button 元素，`url` 为 `https://space.bilibili.com/{uid}`）。按钮可跳转浏览器或 B站 App。
 3. 不需要额外回复，用户会在飞书收到卡片
 
 ## 展示规范
 
 - **时间戳**：所有 Unix 时间戳展示为 YYYY-MM-DD 格式
-- **微信读书深度链接**：每条公众号末尾必须用 markdown 语法 `[打开阅读](weread://reading?bId={bookId})` 渲染为可点击链接
-- **B站深度链接**：每条 UP 主末尾必须用 markdown 语法 `[打开主页](https://space.bilibili.com/{uid})` 渲染为可点击链接
-- **禁止**：将链接输出为纯文本（如 "📖 打开阅读"），必须使用 `[文本](URL)` 语法
+- **聊天展示**：链接使用 markdown 语法 `[打开阅读](weread://...)` / `[打开主页](https://...)`，不可用纯文本替代
+- **飞书卡片**：链接由脚本内置的 `action` button 元素承载（`check_wechat.py` / `check_bili.py` 已实现），卡片只是脚本推送结果，agent 不需要额外处理
+- **禁止**：在飞书卡片的 `lark_md` 文本中嵌入 `weread://` 链接（飞书不渲染非 http 协议）
 - **公众号状态标记**：🆕 有更新 / ✅ 无新内容 / 📌 新关注 / ❌ 已取关
 - **B站标记**：🎬新视频 / 📝新动态

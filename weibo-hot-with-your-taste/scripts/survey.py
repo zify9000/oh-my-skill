@@ -3,60 +3,22 @@
 """
 import sys
 import json
-import os
 import re
-import logging
+import argparse
 from datetime import date, datetime
-from pathlib import Path
 
 import yaml
 import openai
 
-os.environ.setdefault("TZ", "Asia/Shanghai")
+from common import (
+    SCRIPT_DIR, DATA_DIR, CONFIG_DIR,
+    ALL_TOPICS_PATH, PUSHED_TOPICS_PATH, PROMPT_PATH,
+    setup_logging, load_base_config, resolve_llm_creds,
+)
 
-SCRIPT_DIR = Path(__file__).parent  # scripts/
-DATA_DIR = SCRIPT_DIR / "data"
-CONFIG_DIR = SCRIPT_DIR / "config"
-LOG_DIR = SCRIPT_DIR / "log"
-
-ALL_TOPICS_PATH = DATA_DIR / "all_topics.jsonl"
-PUSHED_TOPICS_PATH = DATA_DIR / "pushed_topics.jsonl"
-PROMPT_PATH = CONFIG_DIR / "prompt.yaml"
-BASE_CONFIG_PATH = CONFIG_DIR / "base.yaml"
+logger = setup_logging("survey")
 
 MIN_UNPUSHED_COUNT = 5
-
-
-def setup_logging():
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_level = os.environ.get("WEIBO_HOT_NEWS_LOG_LEVEL", "INFO").upper()
-    log_file = LOG_DIR / f"survey_{datetime.now().strftime('%Y%m%d')}.log"
-    logging.basicConfig(
-        level=getattr(logging, log_level, logging.INFO),
-        format="[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
-            logging.StreamHandler(sys.stderr),
-        ],
-    )
-    return logging.getLogger("survey")
-
-
-logger = setup_logging()
-
-
-def load_config():
-    sys.path.insert(0, str(SCRIPT_DIR))
-    from push import load_env
-
-    cfg = {}
-    if BASE_CONFIG_PATH.exists():
-        with open(BASE_CONFIG_PATH) as f:
-            cfg = yaml.safe_load(f) or {}
-
-    load_env()
-    return cfg
 
 
 def collect_unpushed_topics() -> tuple:
@@ -103,17 +65,14 @@ def collect_unpushed_topics() -> tuple:
     return result, len(pushed_words)
 
 
-def call_llm_survey(unpushed: list, pushed_count: int, config: dict) -> list:
+def call_llm_survey(unpushed: list, pushed_count: int, llm_model="", base_url="", api_key="") -> list:
     """LLM 从未推送话题中判断用户可能感兴趣的，返回全部候选（带 llm_recommended 标记）"""
-    api_key = config.get("llm", {}).get("api_key", "")
     if not api_key:
         logger.error("未找到 API_KEY")
         sys.exit(1)
 
-    llm_model = os.environ.get("llm_model", "")
-    base_url = os.environ.get("llm_base_url", "")
     if not llm_model or not base_url:
-        logger.error("未配置 llm_model 或 llm_base_url 环境变量")
+        logger.error("未配置 llm_model 或 llm_base_url")
         sys.exit(1)
 
     with open(PROMPT_PATH, encoding="utf-8") as f:
@@ -194,7 +153,13 @@ def call_llm_survey(unpushed: list, pushed_count: int, config: dict) -> list:
 
 
 def main():
-    CONFIG = load_config()
+    parser = argparse.ArgumentParser(description="偏好调研")
+    parser.add_argument("--llm-model", default="", help="agent 模式：LLM 模型名")
+    parser.add_argument("--llm-base-url", default="", help="agent 模式：LLM API 地址")
+    parser.add_argument("--llm-api-key", default="", help="agent 模式：LLM API 密钥")
+    args = parser.parse_args()
+
+    CONFIG = load_base_config()
 
     unpushed, pushed_count = collect_unpushed_topics()
 
@@ -210,7 +175,10 @@ def main():
 
     logger.info(f"当天未推送 {len(unpushed)} 条，已推送 {pushed_count} 条")
 
-    candidates = call_llm_survey(unpushed, pushed_count, CONFIG)
+    llm_model, llm_base_url, llm_api_key = resolve_llm_creds(
+        CONFIG, args.llm_model, args.llm_base_url, args.llm_api_key
+    )
+    candidates = call_llm_survey(unpushed, pushed_count, llm_model, llm_base_url, llm_api_key)
 
     selected_count = sum(1 for c in candidates if c["llm_recommended"])
     logger.info(f"LLM 推荐调研 {selected_count} 条")

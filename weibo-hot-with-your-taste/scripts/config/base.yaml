@@ -1,9 +1,18 @@
 llm:
-  max_tokens: 40960
+  max_tokens: 131072
   timeout: 180
   temperature: 0.1
+
+# llm_credential_source: env | agent
+#   env   — 从 env/.llm.env 读取 llm_model/base_url/api_key
+#   agent — 通过 CLI 参数 --llm-model/--llm-base-url/--llm-api-key 注入
+llm_credential_source: env
+
+# feishu_credential_source: env | agent
+#   env   — 从 env/.feishu.env 读取 feishu_app_id/secret/chat_id
+#   agent — 通过 CLI 参数 --feishu-app-id/--feishu-app-secret/--feishu-chat-id 注入
+feishu_credential_source: agent
 
 feishu:
   retry_times: 3
   retry_delay: 10
-

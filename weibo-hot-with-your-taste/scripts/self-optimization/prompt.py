@@ -3,70 +3,27 @@ Prompt 优化脚本：根据 tasted_topics.jsonl 中的用户品味数据优化 
 """
 import sys
 import json
-import os
 import re
-import logging
-from datetime import datetime
+import argparse
 from pathlib import Path
 
 import yaml
 import openai
 
-os.environ.setdefault("TZ", "Asia/Shanghai")
-
-SCRIPT_DIR = Path(__file__).parent.parent  # scripts/
-DATA_DIR = SCRIPT_DIR / "data"
-CONFIG_DIR = SCRIPT_DIR / "config"
-LOG_DIR = SCRIPT_DIR / "log"
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from common import (
+    DATA_DIR, CONFIG_DIR, PROMPT_PATH, PUSHED_TOPICS_PATH, BASE_CONFIG_PATH,
+    setup_logging, load_base_config, resolve_llm_creds,
+)
 
 TASTED_TOPICS_PATH = DATA_DIR / "tasted_topics.jsonl"
-PUSHED_TOPICS_PATH = DATA_DIR / "pushed_topics.jsonl"
-PROMPT_PATH = CONFIG_DIR / "prompt.yaml"
-BASE_CONFIG_PATH = CONFIG_DIR / "base.yaml"
 
-
+logger = setup_logging("prompt-optimizer")
+CONFIG = load_base_config()
 MIN_FEEDBACK_COUNT = 5
 
 
-def setup_logging():
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_level = os.environ.get("WEIBO_HOT_NEWS_LOG_LEVEL", "INFO").upper()
-    log_file = LOG_DIR / f"prompt_{datetime.now().strftime('%Y%m%d')}.log"
-    logging.basicConfig(
-        level=getattr(logging, log_level, logging.INFO),
-        format="[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
-            logging.StreamHandler(sys.stderr),
-        ],
-    )
-    return logging.getLogger("prompt-optimizer")
-
-
-logger = setup_logging()
-
-
-def load_config():
-    cfg = {}
-    if BASE_CONFIG_PATH.exists():
-        with open(BASE_CONFIG_PATH) as f:
-            cfg = yaml.safe_load(f) or {}
-    return cfg
-
-
 def collect_feedback_data() -> dict:
-    """
-    从 tasted_topics.jsonl 和 pushed_topics.jsonl 收集反馈数据
-
-    分类逻辑：
-    - 已推送 + 用户喜欢 → true_positive
-    - 已推送 + 用户不喜欢 → false_positive
-    - 未推送 + 用户喜欢 → false_negative（从调研/召回中发现的遗漏）
-
-    Returns:
-        {"false_positive": [...], "true_positive": [...], "false_negative": [...]}
-    """
     if not TASTED_TOPICS_PATH.exists():
         return {"false_positive": [], "true_positive": [], "false_negative": []}
 
@@ -87,7 +44,6 @@ def collect_feedback_data() -> dict:
     false_positive = []
     true_positive = []
     false_negative = []
-
     seen = set()
 
     with open(TASTED_TOPICS_PATH, encoding="utf-8") as f:
@@ -147,28 +103,20 @@ def format_feedback_for_llm(feedback_data: dict) -> str:
 
 
 def _generate_diff(old: str, new: str) -> str:
-    """生成简单的行级 diff"""
     import difflib
 
     old_lines = old.splitlines(keepends=True)
     new_lines = new.splitlines(keepends=True)
-    diff_lines = list(difflib.unified_diff(
-        old_lines, new_lines,
-        fromfile="old", tofile="new"
-    ))
+    diff_lines = list(difflib.unified_diff(old_lines, new_lines, fromfile="old", tofile="new"))
     return "".join(diff_lines)
 
 
-def call_llm_optimize(current_prompt: str, feedback_text: str, config: dict) -> tuple:
-    api_key = config.get("llm", {}).get("api_key", "")
+def call_llm_optimize(current_prompt: str, feedback_text: str, llm_model="", base_url="", api_key=""):
     if not api_key:
         logger.error("未找到 API_KEY")
         sys.exit(1)
-
-    llm_model = os.environ.get("llm_model", "")
-    base_url = os.environ.get("llm_base_url", "")
     if not llm_model or not base_url:
-        logger.error("未配置 llm_model 或 llm_base_url 环境变量")
+        logger.error("未配置 llm_model 或 llm_base_url")
         sys.exit(1)
 
     optimize_prompt = f"""你是一个 prompt 优化专家。请根据用户反馈优化以下新闻判断 prompt。
@@ -237,7 +185,11 @@ def call_llm_optimize(current_prompt: str, feedback_text: str, config: dict) -> 
 
 
 def main():
-    CONFIG = load_config()
+    parser = argparse.ArgumentParser(description="Prompt 优化")
+    parser.add_argument("--llm-model", default="", help="agent 模式：LLM 模型名")
+    parser.add_argument("--llm-base-url", default="", help="agent 模式：LLM API 地址")
+    parser.add_argument("--llm-api-key", default="", help="agent 模式：LLM API 密钥")
+    args = parser.parse_args()
 
     if not PROMPT_PATH.exists():
         logger.error("prompt.yaml 不存在")
@@ -256,7 +208,7 @@ def main():
     )
 
     if total_feedback < MIN_FEEDBACK_COUNT:
-        logger.info(f"反馈数据不足（{total_feedback} 条，需 {MIN_FEEDBACK_COUNT} 条），请先积累数据")
+        logger.info(f"反馈数据不足（{total_feedback} 条，需 {MIN_FEEDBACK_COUNT} 条）")
         result = {
             "ready": False,
             "total_feedback": total_feedback,
@@ -268,16 +220,17 @@ def main():
         print(json.dumps(result, ensure_ascii=False))
         return
 
-    logger.info(f"收集到 {total_feedback} 条反馈（假阳性 {len(feedback_data['false_positive'])}, 真阳性 {len(feedback_data['true_positive'])}, 假阴性 {len(feedback_data['false_negative'])}）")
+    logger.info(f"收集到 {total_feedback} 条反馈")
 
     feedback_text = format_feedback_for_llm(feedback_data)
-    new_prompt, change_summary = call_llm_optimize(current_prompt, feedback_text, CONFIG)
+    llm_model, llm_base_url, llm_api_key = resolve_llm_creds(
+        CONFIG, args.llm_model, args.llm_base_url, args.llm_api_key
+    )
+    new_prompt, change_summary = call_llm_optimize(current_prompt, feedback_text, llm_model, llm_base_url, llm_api_key)
 
     logger.info("=== 变更摘要 ===")
     for line in change_summary:
         logger.info(f"  {line}")
-
-    logger.info(f"旧 prompt ({len(current_prompt)} 字), 新 prompt ({len(new_prompt)} 字)")
 
     result = {
         "ready": True,

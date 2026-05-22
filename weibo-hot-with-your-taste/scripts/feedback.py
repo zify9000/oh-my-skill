@@ -1,40 +1,14 @@
 """反馈记录脚本：将用户反馈写入 tasted_topics.jsonl"""
-import sys
 import json
-import os
-import time
 import fcntl
 import argparse
-import logging
 from datetime import datetime
-from pathlib import Path
 
-os.environ["TZ"] = "Asia/Shanghai"
-time.tzset()
+from common import DATA_DIR, setup_logging
 
-SCRIPT_DIR = Path(__file__).parent
-DATA_DIR = SCRIPT_DIR / "data"
-LOG_DIR = SCRIPT_DIR / "log"
 TASTED_TOPICS_PATH = DATA_DIR / "tasted_topics.jsonl"
 
-
-def setup_logging():
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_level = os.environ.get("WEIBO_HOT_NEWS_LOG_LEVEL", "INFO").upper()
-    log_file = LOG_DIR / f"feedback_{datetime.now().strftime('%Y%m%d')}.log"
-    logging.basicConfig(
-        level=getattr(logging, log_level, logging.INFO),
-        format="[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
-            logging.StreamHandler(sys.stderr),
-        ],
-    )
-    return logging.getLogger("feedback")
-
-
-logger = setup_logging()
+logger = setup_logging("feedback")
 
 
 def main():

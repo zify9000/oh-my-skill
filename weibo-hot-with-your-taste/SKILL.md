@@ -1,7 +1,6 @@
 ---
 name: weibo-hot-with-your-taste
 description: 抓取微博热榜，根据用户偏好定制化筛选热点话题（预设为政治/经济/科技类），通过飞书向用户推送。支持用户通过对话即时反馈喜欢/不喜欢的话题，支持开展偏好调研，支持根据用户反馈自优化筛选标准和规则，以更好地匹配用户口味。关键词：微博热点/个性化推荐/用户反馈/自优化
-category: rss
 ---
 
 # 微博热榜追踪
@@ -12,16 +11,24 @@ category: rss
 weibo-hot-with-your-taste/
 ├── SKILL.md                  # Skill 说明文档
 ├── scripts/
-│   ├── push.py               # 推送热点：抓取 → 规则过滤 → 规则反写 → LLM核校 → 推送
+│   ├── common.py             # 公共工具：配置加载、日志、格式化
+│   ├── fetch.py              # 抓取热点：抓取 → 规则过滤 → LLM核校 → 缓存
+│   ├── push.py               # 推送热点：读缓存 → 去重 → LLM二次过滤 → 推送飞书卡片
 │   ├── survey.py             # 反馈推送：LLM 从未推送话题中召回候选
 │   ├── feedback.py           # 调研偏好：将用户反馈写入 tasted_topics.jsonl
+│   ├── env/
+│   │   ├── .llm.env          # LLM 配置（llm_model / llm_base_url / llm_api_key）
+│   │   ├── .llm.env.example
+│   │   ├── .feishu.env       # 飞书凭据（仅 feishu_credential_source=env 时需要）
+│   │   └── .feishu.env.example
 │   ├── config/
-│   │   ├── base.yaml         # 基础配置（LLM参数、飞书webhook、性能开关）
+│   │   ├── base.yaml         # 基础配置（LLM参数、llm_credential_source、feishu_credential_source）
 │   │   ├── rule.yaml         # 规则配置（category_exclude分类排除、keyword_recall关键词反写）
-│   │   └── prompt.yaml       # LLM 判断 prompt 模板
+│   │   └── prompt.yaml       # LLM prompt 模板（judge_prompt + second_filter_prompt）
 │   ├── data/
 │   │   ├── topic_category.json     # 分类词库（自动维护，记录微博API返回的category）
-│   │   ├── all_topics.jsonl  # 原始全量抓取数据（每次push追加）
+│   │   ├── all_topics.jsonl  # 原始全量抓取数据（每次fetch追加）
+│   │   ├── cached_topics.jsonl # 缓存池（fetch写入重要话题，push后清空）
 │   │   ├── pushed_topics.jsonl # 已推送新闻记录
 │   │   └── tasted_topics.jsonl # 用户品味档案（反馈+调研结果合并）
 │   ├── log/                  # 运行日志（按日滚动）
@@ -34,25 +41,52 @@ weibo-hot-with-your-taste/
 
 ## 核心脚本
 
-| 脚本 | 触发方式 | 职责 |
-|------|---------|------|
-| `push.py` | agent 调用 | 抓取 → 规则过滤 → 反写 → LLM核校 → 推送飞书 |
-| `feedback.py` | agent 调用 | 接收 --word/--liked 参数，写入 tasted_topics.jsonl |
-| `survey.py` | agent 调用 | 计算差集，LLM 召回候选，输出 JSON 到 stdout |
-| `prompt.py` | agent 调用 | 分析 tasted_topics.jsonl → LLM 优化 prompt，输出 diff |
-| `rule.py` | agent 调用 | 发现 topic_category.json 未归类分类 → LLM 预判归属，输出建议 |
+| 脚本 | 职责 |
+|------|------|
+| `fetch.py` | 抓取微博热榜 → 规则过滤 → 反写 → LLM核校 → 缓存重要话题到 `cached_topics.jsonl` |
+| `push.py` | 读缓存 → 按 word 去重 → LLM 二次精选 → 飞书卡片推送。推送后清空 cached_topics.jsonl 缓存。飞书凭据来源由 `feishu_credential_source` 控制（`env` / `agent`） |
+| `feedback.py` | 接收 --word/--liked 参数，写入 tasted_topics.jsonl |
+| `survey.py` | 计算差集，LLM 召回候选，输出 JSON 到 stdout |
+| `prompt.py` | 分析 tasted_topics.jsonl → LLM 优化 prompt，输出 diff |
+| `rule.py` | 发现 topic_category.json 未归类分类 → LLM 预判归属，输出建议 |
 
 ## 业务流
 
-### 1. 推送
+### 1. 抓取与推送
+
+**抓取和推送解耦为两个独立脚本**，一天中可多次抓取，一次性推送：
 
 ```
-抓取微博热榜 → 规则过滤(category字段匹配category_exclude) → 规则反写(word字段匹配keyword_recall) → LLM核校 → 推送飞书卡片
-        ↓                    ↓                                                                          ↓
-   all_topics.jsonl       topic_category.json                                                        pushed_topics.jsonl
+fetch.py:  抓取微博热榜 → 规则过滤 → 规则反写 → LLM核校 → 缓存重要话题到 cached_topics.jsonl
+                ↓              ↓
+           all_topics.jsonl  topic_category.json
+
+push.py:   读 cached_topics.jsonl → 按 word 去重 → (多次抓取) LLM 二次精选 → 飞书卡片 → 清空缓存
+                                                              ↓
+                                                       pushed_topics.jsonl
+                                          (仅一次抓取) 跳过二次过滤，直接推送
 ```
 
-飞书卡片末尾自带提示："💬 回复序号评价本次推送，如\"1,3感兴趣\""
+**⚠️ 推送必须通过 `push.py` 完成，禁止使用 `send_message` 等工具替代。** `push.py` 发送的是飞书卡片消息（带红色标题栏、分类标签、序号），不是纯文本。
+
+**agent 工作流：**
+
+1. 读取 `scripts/config/base.yaml`，检查 `llm_credential_source` 和 `feishu_credential_source`
+2. 构建命令行参数：
+   - `llm_credential_source=env` → 确认 `scripts/env/.llm.env` 存在
+   - `llm_credential_source=agent` → 传 `--llm-model xxx --llm-base-url xxx --llm-api-key xxx`
+   - `feishu_credential_source=env` → 确认 `scripts/env/.feishu.env` 存在
+   - `feishu_credential_source=agent` → 传 `--feishu-app-id xxx --feishu-app-secret xxx --feishu-chat-id xxx`
+3. 运行 `python3 scripts/fetch.py [llm参数]` 抓取
+4. 运行 `python3 scripts/push.py [llm参数] [飞书参数]` 推送
+5. 飞书卡片末尾自带提示："💬 回复序号评价本次推送，如\"1,3感兴趣\""
+
+**凭据来源：**
+
+| 凭据 | env 模式（默认） | agent 模式 |
+|------|---------|---------|
+| LLM | 从 `scripts/env/.llm.env` 读取 | `--llm-model` `--llm-base-url` `--llm-api-key` |
+| 飞书 | 从 `scripts/env/.feishu.env` 读取 | `--feishu-app-id` `--feishu-app-secret` `--feishu-chat-id` |
 
 ### 2. 反馈
 
@@ -148,36 +182,13 @@ weibo-hot-with-your-taste/
    - `全部按推荐` → 全部采用 LLM 推荐
    - `社会新闻→排除，其他按推荐` → 混合处理
 
-## 配置更新原则
-
-- 修改 `prompt.yaml` 或 `rule.yaml` 前必须备份（`.bak` 后缀）
-- 备份命令：`cp scripts/config/rule.yaml scripts/config/rule.yaml.bak`
-- 更新后告知用户备份位置
-
-## 数据文件说明
-
-### tasted_topics.jsonl
-
-用户品味档案，汇总反馈和调研结果，由 `feedback.py` 统一写入。
-
-```json
-{"ts": "2026-05-18T10:00:00", "word": "#小米YU7#", "liked": true, "category": "科技", "recorded_at": "2026-05-18T10:05:00"}
-```
-
-### pushed_topics.jsonl
-
-每次推送的记录。
-
-```json
-{"ts": "2026-05-18T10:00:00", "total_fetched": 50, "topics": [{"word": "...", "category": "..."}]}
-```
-
 ## 运行日志
 
 日志按日写入 `scripts/log/` 目录，同时输出到 stderr：
 
+- `fetch_YYYYMMDD.log` — 抓取日志
+- `push_YYYYMMDD.log` — 推送日志
 - `feedback_YYYYMMDD.log` — 反馈记录日志
-- `push_YYYYMMDD.log` — 推送流日志
-- `survey_YYYYMMDD.log` — 调研流日志
+- `survey_YYYYMMDD.log` — 调研日志
 - `prompt_YYYYMMDD.log` — Prompt 优化日志
 - `rule_YYYYMMDD.log` — 规则优化日志

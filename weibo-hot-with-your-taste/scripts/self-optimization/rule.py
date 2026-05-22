@@ -3,25 +3,21 @@
 """
 import sys
 import json
-import os
 import re
-import logging
-from datetime import datetime
+import argparse
 from pathlib import Path
 
 import yaml
 import openai
 
-os.environ.setdefault("TZ", "Asia/Shanghai")
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from common import (
+    DATA_DIR, CONFIG_DIR, CATEGORY_STORE_PATH, RULE_CONFIG_PATH, BASE_CONFIG_PATH,
+    setup_logging, load_base_config, load_rule_config, resolve_llm_creds,
+)
 
-SCRIPT_DIR = Path(__file__).parent.parent  # scripts/
-DATA_DIR = SCRIPT_DIR / "data"
-CONFIG_DIR = SCRIPT_DIR / "config"
-LOG_DIR = SCRIPT_DIR / "log"
-
-CATEGORY_STORE_PATH = DATA_DIR / "topic_category.json"
-RULE_CONFIG_PATH = CONFIG_DIR / "rule.yaml"
-BASE_CONFIG_PATH = CONFIG_DIR / "base.yaml"
+logger = setup_logging("rule-optimizer")
+CONFIG = load_base_config()
 
 CHOICE_EXCLUDE = "exclude"
 CHOICE_STAR = "star"
@@ -34,57 +30,15 @@ LABEL_MAP = {
 }
 
 
-def setup_logging():
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_level = os.environ.get("WEIBO_HOT_NEWS_LOG_LEVEL", "INFO").upper()
-    log_file = LOG_DIR / f"rule_{datetime.now().strftime('%Y%m%d')}.log"
-    logging.basicConfig(
-        level=getattr(logging, log_level, logging.INFO),
-        format="[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
-            logging.StreamHandler(sys.stderr),
-        ],
-    )
-    return logging.getLogger("rule-optimizer")
-
-
-logger = setup_logging()
-
-
-def load_config():
-    cfg = {}
-    if BASE_CONFIG_PATH.exists():
-        with open(BASE_CONFIG_PATH) as f:
-            cfg = yaml.safe_load(f) or {}
-    return cfg
-
-
-def load_rule_config():
-    if not RULE_CONFIG_PATH.exists():
-        return {"category_exclude": [], "keyword_recall": []}
-
-    with open(RULE_CONFIG_PATH) as f:
-        return yaml.safe_load(f) or {}
-
-
 def find_unclassified_categories(keyword_store: dict, rule_config: dict) -> list:
-    """
-    找出 topic_category.json 中未在 rule.yaml 中归类的分类
-    """
     all_cats = set(keyword_store.get("categories", []))
     exclude = set(rule_config.get("category_exclude", []))
     star = set(rule_config.get("keyword_recall", []))
-
     classified = exclude | star
     return sorted(all_cats - classified)
 
 
-def llm_classify_categories(categories: list, rule_config: dict, config: dict) -> dict:
-    api_key = config.get("llm", {}).get("api_key", "")
-    llm_model = os.environ.get("llm_model", "")
-    base_url = os.environ.get("llm_base_url", "")
+def llm_classify_categories(categories: list, rule_config: dict, llm_model="", base_url="", api_key="") -> dict:
     if not api_key or not llm_model or not base_url:
         logger.warning("LLM 配置不完整，所有分类默认标记为 skip")
         return {cat: CHOICE_SKIP for cat in categories}
@@ -161,7 +115,12 @@ def llm_classify_categories(categories: list, rule_config: dict, config: dict) -
 
 
 def main():
-    CONFIG = load_config()
+    parser = argparse.ArgumentParser(description="规则优化")
+    parser.add_argument("--llm-model", default="", help="agent 模式：LLM 模型名")
+    parser.add_argument("--llm-base-url", default="", help="agent 模式：LLM API 地址")
+    parser.add_argument("--llm-api-key", default="", help="agent 模式：LLM API 密钥")
+    args = parser.parse_args()
+
     rule_config = load_rule_config()
 
     if not CATEGORY_STORE_PATH.exists():
@@ -181,7 +140,10 @@ def main():
 
     logger.info(f"发现 {len(unclassified)} 个未归类分类: {unclassified}")
 
-    recommendations = llm_classify_categories(unclassified, rule_config, CONFIG)
+    llm_model, llm_base_url, llm_api_key = resolve_llm_creds(
+        CONFIG, args.llm_model, args.llm_base_url, args.llm_api_key
+    )
+    recommendations = llm_classify_categories(unclassified, rule_config, llm_model, llm_base_url, llm_api_key)
     for cat, choice in recommendations.items():
         label = LABEL_MAP.get(choice, choice)
         logger.info(f"  {cat} → {label}")

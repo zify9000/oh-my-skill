@@ -1,7 +1,6 @@
 ---
 name: wewe-follow
 description: 追踪微信读书书架上的公众号更新和B站UP主更新，检测新文章/视频/动态发布。关键词：公众号/微信读书/B站/bilibili/UP主/更新追踪/未读检测
-category: rss
 ---
 
 # wewe-follow

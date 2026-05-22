@@ -1,0 +1,8 @@
+# feishu_credential_source: env | agent
+#   env   — 从 env/.feishu.env 读取
+#   agent — 通过 CLI 参数 --feishu-app-id/--feishu-app-secret/--feishu-chat-id 注入
+feishu_credential_source: agent
+
+follow:
+  - "猫笔刀"
+  - "重燃阅读"

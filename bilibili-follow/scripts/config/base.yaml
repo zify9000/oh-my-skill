@@ -1,7 +1,19 @@
-# feishu_credential_source: env | agent
-#   env   — 从 env/.feishu.env 读取
-#   agent — 通过 CLI 参数 --feishu-app-id/--feishu-app-secret/--feishu-chat-id 注入
-feishu_credential_source: agent
+# B站API请求配置
+bili:
+  # 请求间隔（秒），控制整体请求速率，默认5
+  request_interval: 5
+  # 最大重试次数，默认3
+  retry_max: 3
+  # 重试基础等待秒数，实际等待 = base * 2^attempt + random(0,5)
+  retry_base_wait: 10
+  # 代理地址（可选），支持 socks5/http/https
+  # VPN 用户：Clash 填 http://127.0.0.1:7890，V2Ray/SS 填 socks5://127.0.0.1:1080
+  # 留空则直连
+  proxy: ""
 
 follow:
   - "社畜小k"
+  - "俞秦语理"
+  - "极速军情"
+  - "战国时代_姜汁汽水"
+  - "有言再仙儿"    

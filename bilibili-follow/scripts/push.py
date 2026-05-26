@@ -1,5 +1,4 @@
 """读取 last_result.json，发送飞书卡片"""
-import argparse
 import json
 import os
 import sys
@@ -7,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 
 from common import (
     DATA_DIR, FEISHU_ENV_PATH,
-    setup_logging, load_env, load_base_config, format_timestamp,
+    setup_logging, load_env, format_timestamp,
     get_feishu_token, send_feishu_message,
 )
 
@@ -53,12 +52,6 @@ def build_card(results: list[dict], summary: dict) -> dict:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="B站UP主更新推送")
-    parser.add_argument("--feishu-app-id", default="", help="agent 模式：飞书应用 ID")
-    parser.add_argument("--feishu-app-secret", default="", help="agent 模式：飞书应用密钥")
-    parser.add_argument("--feishu-chat-id", default="", help="agent 模式：飞书群聊 ID")
-    args = parser.parse_args()
-
     if not LAST_RESULT_PATH.exists():
         logger.error("last_result.json 不存在，请先运行 check.py")
         sys.exit(1)
@@ -66,19 +59,13 @@ def main():
     with open(LAST_RESULT_PATH) as f:
         data = json.load(f)
 
-    config = load_base_config()
-    cred_source = config.get("feishu_credential_source", "env")
-
-    if cred_source == "agent":
-        app_id, app_secret, chat_id = args.feishu_app_id, args.feishu_app_secret, args.feishu_chat_id
-    else:
-        load_env(FEISHU_ENV_PATH)
-        app_id = os.environ.get("feishu_app_id", "")
-        app_secret = os.environ.get("feishu_app_secret", "")
-        chat_id = os.environ.get("feishu_chat_id", "")
+    load_env(FEISHU_ENV_PATH)
+    app_id = os.environ.get("feishu_app_id", "")
+    app_secret = os.environ.get("feishu_app_secret", "")
+    chat_id = os.environ.get("feishu_chat_id", "")
 
     if not app_id or not app_secret or not chat_id:
-        logger.error("飞书凭据不完整")
+        logger.error("飞书凭据不完整，请检查 env/.feishu.env")
         sys.exit(1)
 
     token = get_feishu_token(app_id, app_secret)

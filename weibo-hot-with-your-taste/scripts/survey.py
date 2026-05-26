@@ -3,8 +3,8 @@
 """
 import sys
 import json
+import os
 import re
-import argparse
 from datetime import date, datetime
 
 import yaml
@@ -13,7 +13,7 @@ import openai
 from common import (
     SCRIPT_DIR, DATA_DIR, CONFIG_DIR,
     ALL_TOPICS_PATH, PUSHED_TOPICS_PATH, PROMPT_PATH,
-    setup_logging, load_base_config, resolve_llm_creds,
+    setup_logging, load_base_config,
 )
 
 logger = setup_logging("survey")
@@ -153,12 +153,6 @@ def call_llm_survey(unpushed: list, pushed_count: int, llm_model="", base_url=""
 
 
 def main():
-    parser = argparse.ArgumentParser(description="偏好调研")
-    parser.add_argument("--llm-model", default="", help="agent 模式：LLM 模型名")
-    parser.add_argument("--llm-base-url", default="", help="agent 模式：LLM API 地址")
-    parser.add_argument("--llm-api-key", default="", help="agent 模式：LLM API 密钥")
-    args = parser.parse_args()
-
     CONFIG = load_base_config()
 
     unpushed, pushed_count = collect_unpushed_topics()
@@ -175,9 +169,9 @@ def main():
 
     logger.info(f"当天未推送 {len(unpushed)} 条，已推送 {pushed_count} 条")
 
-    llm_model, llm_base_url, llm_api_key = resolve_llm_creds(
-        CONFIG, args.llm_model, args.llm_base_url, args.llm_api_key
-    )
+    llm_model = os.environ.get("llm_model", "")
+    llm_base_url = os.environ.get("llm_base_url", "")
+    llm_api_key = os.environ.get("llm_api_key", "")
     candidates = call_llm_survey(unpushed, pushed_count, llm_model, llm_base_url, llm_api_key)
 
     selected_count = sum(1 for c in candidates if c["llm_recommended"])

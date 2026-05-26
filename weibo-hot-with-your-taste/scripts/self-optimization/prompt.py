@@ -1,19 +1,19 @@
 """
-Prompt 优化脚本：根据 tasted_topics.jsonl 中的用户品味数据优化 prompt.yaml 判断标准
+Prompt 优化脚本：根据 tasted_topics.jsonl 中的用户品味数据优化 .initialized 中的 yes/no 判断标准
 """
 import sys
 import json
 import re
-import argparse
+import os
 from pathlib import Path
 
-import yaml
 import openai
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from common import (
-    DATA_DIR, CONFIG_DIR, PROMPT_PATH, PUSHED_TOPICS_PATH, BASE_CONFIG_PATH,
-    setup_logging, load_base_config, resolve_llm_creds,
+    DATA_DIR, PUSHED_TOPICS_PATH,
+    setup_logging, load_base_config,
+    load_user_prefs, INITIALIZED_PATH,
 )
 
 TASTED_TOPICS_PATH = DATA_DIR / "tasted_topics.jsonl"
@@ -111,7 +111,8 @@ def _generate_diff(old: str, new: str) -> str:
     return "".join(diff_lines)
 
 
-def call_llm_optimize(current_prompt: str, feedback_text: str, llm_model="", base_url="", api_key=""):
+def call_llm_optimize(current_yes: str, current_no: str, feedback_text: str, llm_model="", base_url="", api_key="") -> tuple:
+    """根据用户反馈优化 yes/no 判断标准，返回 (new_yes, new_no, change_summary)"""
     if not api_key:
         logger.error("未找到 API_KEY")
         sys.exit(1)
@@ -119,25 +120,31 @@ def call_llm_optimize(current_prompt: str, feedback_text: str, llm_model="", bas
         logger.error("未配置 llm_model 或 llm_base_url")
         sys.exit(1)
 
-    optimize_prompt = f"""你是一个 prompt 优化专家。请根据用户反馈优化以下新闻判断 prompt。
+    optimize_prompt = f"""你是一个 prompt 优化专家。请根据用户反馈优化以下新闻判断标准。
 
-当前 prompt:
-{current_prompt}
+当前【yes】范围：
+{current_yes}
+
+当前【no】范围：
+{current_no}
 
 用户反馈数据:
 {feedback_text}
 
-请根据用户反馈优化判断标准，使 prompt 更准确地匹配用户偏好。
+请根据用户反馈优化判断标准，使其更准确地匹配用户偏好。
 
 要求：
-1. 只修改判断标准部分（【重要】和【不重要】的范围），不改变输出格式
-2. 输出格式必须保持：序号:【重要】或 序号:【不重要】
-3. 保持 prompt 的整体结构不变
+1. 只修改【yes】和【no】范围的判断标准
+2. 保持每条一行，格式为"领域：具体描述"
+3. 可以新增、删除、调整条目
 
 请按以下格式输出：
 
-===优化后的prompt===
-（完整的优化后 prompt，包含所有部分）
+===yes===
+（优化后的 yes 范围，每条一行）
+
+===no===
+（优化后的 no 范围，每条一行）
 
 ===变更摘要===
 1. 【操作类型】变更描述
@@ -159,12 +166,17 @@ def call_llm_optimize(current_prompt: str, feedback_text: str, llm_model="", bas
             logger.error("LLM 返回为空")
             sys.exit(1)
 
-        new_prompt = ""
+        new_yes = ""
+        new_no = ""
         change_summary = []
 
-        prompt_match = re.search(r"===优化后的prompt===\s*\n(.*?)(?=\n===变更摘要===)", content, re.DOTALL)
-        if prompt_match:
-            new_prompt = prompt_match.group(1).strip()
+        yes_match = re.search(r"===yes===\s*\n(.*?)(?=\n===no===)", content, re.DOTALL)
+        if yes_match:
+            new_yes = yes_match.group(1).strip()
+
+        no_match = re.search(r"===no===\s*\n(.*?)(?=\n===变更摘要===)", content, re.DOTALL)
+        if no_match:
+            new_no = no_match.group(1).strip()
 
         summary_match = re.search(r"===变更摘要===\s*\n(.*)", content, re.DOTALL)
         if summary_match:
@@ -173,11 +185,11 @@ def call_llm_optimize(current_prompt: str, feedback_text: str, llm_model="", bas
                 if line:
                     change_summary.append(line)
 
-        if not new_prompt:
-            logger.error("无法解析 LLM 输出中的优化后 prompt")
+        if not new_yes or not new_no:
+            logger.error("无法解析 LLM 输出中的判断标准")
             sys.exit(1)
 
-        return new_prompt, change_summary
+        return new_yes, new_no, change_summary
 
     except Exception as e:
         logger.error(f"LLM 调用失败: {e}")
@@ -185,19 +197,14 @@ def call_llm_optimize(current_prompt: str, feedback_text: str, llm_model="", bas
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Prompt 优化")
-    parser.add_argument("--llm-model", default="", help="agent 模式：LLM 模型名")
-    parser.add_argument("--llm-base-url", default="", help="agent 模式：LLM API 地址")
-    parser.add_argument("--llm-api-key", default="", help="agent 模式：LLM API 密钥")
-    args = parser.parse_args()
+    prefs = load_user_prefs()
+    if not prefs:
+        result = {"ready": False, "message": "尚未初始化偏好，请先运行 init.py"}
+        print(json.dumps(result, ensure_ascii=False))
+        return
 
-    if not PROMPT_PATH.exists():
-        logger.error("prompt.yaml 不存在")
-        sys.exit(1)
-
-    with open(PROMPT_PATH, encoding="utf-8") as f:
-        prompt_data = yaml.safe_load(f)
-    current_prompt = prompt_data["judge_prompt"]
+    current_yes = prefs.get("yes_criteria", "")
+    current_no = prefs.get("no_criteria", "")
 
     feedback_data = collect_feedback_data()
 
@@ -223,21 +230,32 @@ def main():
     logger.info(f"收集到 {total_feedback} 条反馈")
 
     feedback_text = format_feedback_for_llm(feedback_data)
-    llm_model, llm_base_url, llm_api_key = resolve_llm_creds(
-        CONFIG, args.llm_model, args.llm_base_url, args.llm_api_key
+    llm_model = os.environ.get("llm_model", "")
+    llm_base_url = os.environ.get("llm_base_url", "")
+    llm_api_key = os.environ.get("llm_api_key", "")
+    new_yes, new_no, change_summary = call_llm_optimize(
+        current_yes, current_no, feedback_text, llm_model, llm_base_url, llm_api_key
     )
-    new_prompt, change_summary = call_llm_optimize(current_prompt, feedback_text, llm_model, llm_base_url, llm_api_key)
 
     logger.info("=== 变更摘要 ===")
     for line in change_summary:
         logger.info(f"  {line}")
 
+    # 更新 .initialized 中的 yes/no criteria
+    prefs["yes_criteria"] = new_yes
+    prefs["no_criteria"] = new_no
+    with open(INITIALIZED_PATH, "w", encoding="utf-8") as f:
+        json.dump(prefs, f, ensure_ascii=False, indent=2)
+    logger.info(".initialized 中的判断标准已更新")
+
     result = {
         "ready": True,
-        "current_prompt_preview": current_prompt[:150] + ("..." if len(current_prompt) > 150 else ""),
-        "new_prompt": new_prompt,
+        "current_yes_preview": current_yes[:150] + ("..." if len(current_yes) > 150 else ""),
+        "new_yes": new_yes,
+        "new_no": new_no,
         "change_summary": change_summary,
-        "diff": _generate_diff(current_prompt, new_prompt),
+        "diff_yes": _generate_diff(current_yes, new_yes),
+        "diff_no": _generate_diff(current_no, new_no),
         "total_feedback": total_feedback,
     }
     print(json.dumps(result, ensure_ascii=False))

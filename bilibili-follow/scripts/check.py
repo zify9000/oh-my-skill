@@ -1,36 +1,27 @@
-"""检查B站UP主更新，输出 JSON 到 stdout + 写入 last_result.json"""
+"""检查B站UP主更新，输出 JSON 到 stdout + 写入 last_result.json
+
+支持 --dry-run 模式：不发起任何API请求，直接用上次状态重新对比输出。
+"""
+import argparse
 import json
+import random
 import sys
-import time
 from datetime import datetime, timezone
 
+from bili_client import BiliClient
 from common import (
-    DATA_DIR, STATE_FILE, CREDENTIALS_PATH,
-    setup_logging, load_env, load_target_config,
-    api_call, sign_wbi,
-    SEARCH_URL, SPACE_INFO_URL, ARC_SEARCH_URL, DYNAMIC_FEED_URL,
-    TRACKED_DYNAMIC_TYPES,
+    DATA_DIR, STATE_FILE,
+    setup_logging, load_base_config, load_target_config,
 )
 
 logger = setup_logging("check")
 LAST_RESULT_PATH = DATA_DIR / "last_result.json"
 
 
-# ── B站 API 操作 ──
+# ── UID 解析 ──
 
-def search_up(name: str) -> dict | None:
-    data = api_call(SEARCH_URL, {"search_type": "bili_user", "keyword": name})
-    results = data.get("data", {}).get("result", [])
-    if not results:
-        return None
-    for r in results:
-        if r.get("uname", "").strip() == name.strip():
-            return {"uid": str(r["mid"]), "name": r["uname"]}
-    first = results[0]
-    return {"uid": str(first.get("mid", "")), "name": first.get("uname", "")}
-
-
-def resolve_uids(names: list[str], state: dict) -> tuple:
+def resolve_uids(client: BiliClient, names: list[str], state: dict) -> tuple:
+    """将UP主名称解析为UID，优先使用缓存"""
     uid_cache = state.get("uid_cache", {})
     uid_map = {}
     failures = []
@@ -39,8 +30,9 @@ def resolve_uids(names: list[str], state: dict) -> tuple:
             uid_map[name] = uid_cache[name]
         else:
             try:
-                result = search_up(name)
-            except Exception:
+                result = client.search_up(name)
+            except Exception as e:
+                logger.warning(f"搜索UP主失败: {name} - {e}")
                 failures.append(name)
                 continue
             if result is None:
@@ -48,48 +40,11 @@ def resolve_uids(names: list[str], state: dict) -> tuple:
             else:
                 uid_map[name] = result["uid"]
                 uid_cache[name] = result["uid"]
-            time.sleep(2)
     state["uid_cache"] = uid_cache
     return uid_map, failures, state
 
 
-def fetch_up_info(uid: str) -> dict:
-    data = api_call(SPACE_INFO_URL, {"mid": uid})
-    d = data.get("data", {})
-    return {"name": d.get("name", ""), "sign": d.get("sign", ""), "face": d.get("face", "")}
-
-
-def fetch_latest_video(uid: str) -> dict | None:
-    params = sign_wbi({"mid": uid, "ps": 1, "order": "pubdate"})
-    data = api_call(ARC_SEARCH_URL, params, referer=f"https://space.bilibili.com/{uid}/video")
-    vlist = data.get("data", {}).get("list", {}).get("vlist", [])
-    if not vlist:
-        return None
-    v = vlist[0]
-    return {"bvid": v.get("bvid", ""), "title": v.get("title", ""), "desc": v.get("description", ""), "cover": v.get("pic", ""), "pubdate": v.get("created", 0)}
-
-
-def fetch_latest_dynamic(uid: str) -> dict | None:
-    data = api_call(DYNAMIC_FEED_URL, {"host_mid": uid}, referer=f"https://space.bilibili.com/{uid}/dynamic")
-    items = data.get("data", {}).get("items", [])
-    for item in items:
-        dtype = item.get("type", "")
-        if dtype not in TRACKED_DYNAMIC_TYPES:
-            continue
-        modules = item.get("modules", {})
-        desc = modules.get("module_dynamic", {}).get("desc", {})
-        desc_text = desc.get("text", "") if isinstance(desc, dict) and desc else ""
-        images = []
-        major = modules.get("module_dynamic", {}).get("major", {})
-        if major.get("type") == "MAJOR_TYPE_DRAW":
-            for img in major.get("draw", {}).get("items", []):
-                images.append(img.get("src", ""))
-        author = modules.get("module_author", {})
-        return {"id_str": item.get("id_str", ""), "content": desc_text, "images": images, "timestamp": author.get("pub_ts", 0)}
-    return None
-
-
-# ── 状态对比 ──
+# ── 状态管理 ──
 
 def load_state() -> dict:
     if not STATE_FILE.exists():
@@ -103,6 +58,8 @@ def save_state(state: dict):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
+
+# ── 状态对比 ──
 
 def compare_status(fresh_data: list[dict], state: dict) -> list[dict]:
     prev_accounts = state.get("accounts", {})
@@ -124,6 +81,7 @@ def compare_status(fresh_data: list[dict], state: dict) -> list[dict]:
             "last_video": up.get("last_video"), "last_dynamic": up.get("last_dynamic"),
             "deep_link": f"https://space.bilibili.com/{up['uid']}",
         })
+    # 已移除的UP主
     current_names = {up["name"] for up in fresh_data}
     for name, info in prev_accounts.items():
         if name not in current_names:
@@ -170,7 +128,10 @@ def build_new_state(results: list[dict], state: dict, uid_map: dict) -> dict:
 # ── 主流程 ──
 
 def main():
-    load_env(CREDENTIALS_PATH)
+    parser = argparse.ArgumentParser(description="检查B站UP主更新")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="不发起API请求，用上次缓存的状态重新对比输出")
+    args = parser.parse_args()
 
     target_names = load_target_config()
     if not target_names:
@@ -178,24 +139,50 @@ def main():
         sys.exit(1)
 
     state = load_state()
-    uid_map, failures, state = resolve_uids(target_names, state)
+
+    # ── dry-run 模式：直接用上次结果重新输出 ──
+    if args.dry_run:
+        logger.info("dry-run 模式：跳过API请求，使用上次缓存数据")
+        prev_accounts = state.get("accounts", {})
+        if not prev_accounts:
+            print(json.dumps({"error": "无缓存数据，请先正常运行一次"}))
+            sys.exit(1)
+        fresh_data = []
+        for name, info in prev_accounts.items():
+            fresh_data.append({
+                "uid": info["uid"], "name": name,
+                "sign": info.get("sign", ""), "face": info.get("face", ""),
+                "last_video": info.get("last_video"), "last_dynamic": info.get("last_dynamic"),
+            })
+        uid_map = {name: info["uid"] for name, info in prev_accounts.items()}
+        _output_results(fresh_data, state, uid_map, [])
+        return
+
+    # ── 正常模式 ──
+    config = load_base_config()
+    bili_config = config.get("bili", {})
+    client = BiliClient(config=bili_config)
+
+    uid_map, failures, state = resolve_uids(client, target_names, state)
     if failures:
         print(json.dumps({"error": f"未找到: {', '.join(failures)}"}))
         sys.exit(1)
 
+    # 随机化检查顺序，避免固定请求模式
+    shuffled_names = list(target_names)
+    random.shuffle(shuffled_names)
+
     fresh_data = []
     errors = []
-    for name in target_names:
+    for name in shuffled_names:
         uid = uid_map[name]
         try:
-            info = fetch_up_info(uid)
-            time.sleep(5)
-            video = fetch_latest_video(uid)
-            time.sleep(5)
-            dynamic = fetch_latest_dynamic(uid)
-            time.sleep(5)
+            info = client.fetch_up_info(uid)
+            video = client.fetch_latest_video(uid)
+            dynamic = client.fetch_latest_dynamic(uid)
         except Exception as e:
             # API 部分失败时用旧状态回退，避免误标为 removed
+            logger.warning(f"获取 {name} 数据失败: {e}")
             errors.append({"name": name, "uid": uid, "error": str(e)})
             prev = state.get("accounts", {}).get(name, {})
             fresh_data.append({
@@ -204,8 +191,17 @@ def main():
                 "last_video": prev.get("last_video"), "last_dynamic": prev.get("last_dynamic"),
             })
             continue
-        fresh_data.append({"uid": uid, "name": name, "sign": info["sign"], "face": info["face"], "last_video": video, "last_dynamic": dynamic})
+        fresh_data.append({
+            "uid": uid, "name": name,
+            "sign": info["sign"], "face": info["face"],
+            "last_video": video, "last_dynamic": dynamic,
+        })
 
+    _output_results(fresh_data, state, uid_map, errors)
+
+
+def _output_results(fresh_data: list[dict], state: dict, uid_map: dict, errors: list[dict]):
+    """对比状态、保存、输出结果"""
     results = compare_status(fresh_data, state)
     new_state = build_new_state(results, state, uid_map)
     save_state(new_state)

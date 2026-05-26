@@ -17,6 +17,7 @@ def main():
     parser.add_argument("--liked", required=True, choices=["true", "false"], help="是否感兴趣")
     parser.add_argument("--category", default="", help="话题分类")
     parser.add_argument("--ts", default="", help="推送时间戳")
+    parser.add_argument("--comment", default="", help="用户原话")
     args = parser.parse_args()
 
     record = {
@@ -24,6 +25,7 @@ def main():
         "word": args.word,
         "liked": args.liked == "true",
         "category": args.category,
+        "comment": args.comment,
         "recorded_at": datetime.now().isoformat(),
     }
 

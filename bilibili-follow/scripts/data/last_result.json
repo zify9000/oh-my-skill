@@ -1,10 +1,10 @@
 {
-  "checked_at": "2026-05-22T08:33:29.834516+00:00",
+  "checked_at": "2026-05-26T04:45:05.924022+00:00",
   "summary": {
     "total": 1,
     "updated": 0,
-    "no_change": 0,
-    "new": 1,
+    "no_change": 1,
+    "new": 0,
     "removed": 0
   },
   "accounts": [
@@ -13,19 +13,12 @@
       "uid": "31115758",
       "sign": "",
       "face": "",
-      "status": "new",
+      "status": "no_change",
       "has_new_video": false,
       "has_new_dynamic": false,
       "last_video": null,
       "last_dynamic": null,
       "deep_link": "https://space.bilibili.com/31115758"
-    }
-  ],
-  "errors": [
-    {
-      "name": "社畜小k",
-      "uid": "31115758",
-      "error": "B站API请求被拒: url=https://api.bilibili.com/x/space/acc/info"
     }
   ]
 }

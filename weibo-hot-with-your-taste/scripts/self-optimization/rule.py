@@ -3,8 +3,8 @@
 """
 import sys
 import json
+import os
 import re
-import argparse
 from pathlib import Path
 
 import yaml
@@ -13,7 +13,7 @@ import openai
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from common import (
     DATA_DIR, CONFIG_DIR, CATEGORY_STORE_PATH, RULE_CONFIG_PATH, BASE_CONFIG_PATH,
-    setup_logging, load_base_config, load_rule_config, resolve_llm_creds,
+    setup_logging, load_base_config, load_rule_config,
 )
 
 logger = setup_logging("rule-optimizer")
@@ -115,12 +115,6 @@ def llm_classify_categories(categories: list, rule_config: dict, llm_model="", b
 
 
 def main():
-    parser = argparse.ArgumentParser(description="规则优化")
-    parser.add_argument("--llm-model", default="", help="agent 模式：LLM 模型名")
-    parser.add_argument("--llm-base-url", default="", help="agent 模式：LLM API 地址")
-    parser.add_argument("--llm-api-key", default="", help="agent 模式：LLM API 密钥")
-    args = parser.parse_args()
-
     rule_config = load_rule_config()
 
     if not CATEGORY_STORE_PATH.exists():
@@ -140,9 +134,9 @@ def main():
 
     logger.info(f"发现 {len(unclassified)} 个未归类分类: {unclassified}")
 
-    llm_model, llm_base_url, llm_api_key = resolve_llm_creds(
-        CONFIG, args.llm_model, args.llm_base_url, args.llm_api_key
-    )
+    llm_model = os.environ.get("llm_model", "")
+    llm_base_url = os.environ.get("llm_base_url", "")
+    llm_api_key = os.environ.get("llm_api_key", "")
     recommendations = llm_classify_categories(unclassified, rule_config, llm_model, llm_base_url, llm_api_key)
     for cat, choice in recommendations.items():
         label = LABEL_MAP.get(choice, choice)

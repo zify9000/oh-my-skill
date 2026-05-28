@@ -5,6 +5,7 @@ import re
 import fcntl
 import logging
 from datetime import datetime
+from urllib.parse import quote
 
 import requests as req
 
@@ -12,8 +13,8 @@ from common import (
     SCRIPT_DIR, DATA_DIR,
     ALL_TOPICS_PATH, RULE_CHECKED_TOPICS_PATH, CATEGORY_STORE_PATH,
     CACHED_FETCH_META_PATH, CACHED_FETCH_TOPICS_PATH,
-    setup_logging, load_base_config, load_llm_env, load_rule_config, load_judge_prompt,
-    get_llm_creds, format_hotness, clean_word,
+    setup_logging, load_base_config, load_llm_env, load_weibo_env, load_rule_config, load_judge_prompt, load_prompt,
+    get_llm_creds, get_weibo_cookies, format_hotness, clean_word,
 )
 
 logger = setup_logging("fetch")
@@ -23,6 +24,11 @@ RULE_CONFIG = load_rule_config()
 
 EXCLUDE_CATEGORIES = set(RULE_CONFIG.get("category_exclude", []))
 RECALL_KEYWORDS = set(RULE_CONFIG.get("keyword_recall", []))
+
+SUMMARY_CONFIG = BASE_CONFIG.get("summary", {})
+SHORT_TOPIC_MAX_LEN = SUMMARY_CONFIG.get("short_topic_max_len", 5)
+MAX_SUMMARY_LEN = SUMMARY_CONFIG.get("max_summary_len", 20)
+TOP_WEIBO_COUNT = SUMMARY_CONFIG.get("top_weibo_count", 10)
 
 
 def fetch_weibo_hot() -> list:
@@ -95,6 +101,111 @@ def apply_rules(all_raw: list) -> tuple:
 
     logger.info(f"规则过滤: {len(candidates)} 候选, {len(excluded)} 排除")
     return candidates, excluded
+
+
+def fetch_topic_detail(word: str, cookies: dict) -> list:
+    """获取话题下热度最高的微博内容列表（m.weibo.cn API），返回 [str, ...]"""
+    import requests as req
+
+    if not cookies or not cookies.get("SUB"):
+        return []
+
+    cookie_str = "; ".join(f"{k}={v}" for k, v in cookies.items())
+    try:
+        resp = req.get(
+            f"https://m.weibo.cn/api/container/getIndex?containerid=100103type%3D1%26q%3D{quote(word)}&page_type=searchall",
+            headers={
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+                "Cookie": cookie_str,
+                "Referer": "https://m.weibo.cn/",
+            },
+            timeout=15,
+        )
+        data = resp.json()
+        if data.get("ok") != 1:
+            logger.warning(f"m.weibo 搜索失败: {word} - ok={data.get('ok')}")
+            return []
+
+        cards = data.get("data", {}).get("cards", []) or []
+        contents = []
+        for card in cards:
+            if card.get("card_type") != 9:
+                continue
+            mblog = card.get("mblog", {})
+            if mblog:
+                text = mblog.get("text", "")
+                clean_text = re.sub(r"<[^>]+>", "", text).strip()
+                if clean_text:
+                    contents.append(clean_text)
+            if len(contents) >= TOP_WEIBO_COUNT:
+                break
+
+        return contents
+
+    except Exception as e:
+        logger.warning(f"获取话题详情异常: {word} - {e}")
+        return []
+
+
+def generate_summary(word: str, weibo_contents: list, llm_model="", base_url="", api_key="") -> str:
+    """用 LLM 根据微博内容生成一句话摘要"""
+    import openai
+
+    if not weibo_contents or not api_key:
+        return ""
+
+    content_text = "\n".join(f"- {c}" for c in weibo_contents)
+    prompt_template = load_prompt("summary_prompt")
+    prompt = prompt_template.format(
+        topic_name=word,
+        weibo_content=content_text,
+        max_len=MAX_SUMMARY_LEN,
+    )
+
+    client = openai.OpenAI(api_key=api_key, base_url=base_url)
+    try:
+        resp = client.chat.completions.create(
+            model=llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=100,
+            timeout=30,
+        )
+        summary = resp.choices[0].message.content.strip()
+        # 截断到最大长度
+        if len(summary) > MAX_SUMMARY_LEN:
+            summary = summary[:MAX_SUMMARY_LEN]
+        return summary
+    except Exception as e:
+        logger.warning(f"生成摘要失败: {word} - {e}")
+        return ""
+
+
+def enrich_short_topics(candidates: list, llm_model="", base_url="", api_key="") -> list:
+    """对短话题名补充摘要信息"""
+    cookies = get_weibo_cookies()
+    if not cookies or not cookies.get("SUB"):
+        logger.info("未配置微博 Cookie，跳过话题摘要补充")
+        return candidates
+
+    short_topics = [n for n in candidates if len(n.get("word", "")) <= SHORT_TOPIC_MAX_LEN]
+    if not short_topics:
+        return candidates
+
+    logger.info(f"发现 {len(short_topics)} 个短话题名（≤{SHORT_TOPIC_MAX_LEN}字），开始补充摘要")
+
+    for n in short_topics:
+        word = n["word"]
+        contents = fetch_topic_detail(word, cookies)
+        if contents:
+            summary = generate_summary(word, contents, llm_model, base_url, api_key)
+            if summary:
+                n["summary"] = summary
+                logger.info(f"摘要: {word} → {summary}")
+        else:
+            logger.info(f"未获取到话题详情: {word}")
+
+    return candidates
 
 
 def save_rule_checked_topics(candidates: list):
@@ -247,7 +358,7 @@ def save_fetch_result(candidates: list, judged: list | None, llm_ok: bool):
 
     # ── 构建候选数据 ──
     def _strip(n: dict) -> dict:
-        return {
+        result = {
             "rank": n.get("rank", 0),
             "word": n["word"],
             "category": n.get("category", ""),
@@ -256,6 +367,9 @@ def save_fetch_result(candidates: list, judged: list | None, llm_ok: bool):
             "hot_str": n.get("hot_str", ""),
             "note": n.get("note", ""),
         }
+        if n.get("summary"):
+            result["summary"] = n["summary"]
+        return result
 
     # ── 写 meta ──
     meta = {
@@ -301,6 +415,8 @@ def save_fetch_result(candidates: list, judged: list | None, llm_ok: bool):
                 "hot_str": n.get("hot_str", ""),
                 "note": n.get("note", ""),
             }
+            if n.get("summary"):
+                record["summary"] = n["summary"]
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
             count += 1
         fcntl.flock(f.fileno(), fcntl.LOCK_UN)
@@ -330,6 +446,10 @@ def main():
         return
 
     save_rule_checked_topics(candidates)
+
+    # 对短话题名补充摘要信息
+    load_weibo_env()
+    candidates = enrich_short_topics(candidates, llm_model, llm_base_url, llm_api_key)
 
     judged = call_llm_judge(candidates, llm_model, llm_base_url, llm_api_key)
     if judged is None:

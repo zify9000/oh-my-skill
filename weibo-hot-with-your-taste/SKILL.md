@@ -1,13 +1,13 @@
 ---
 name: weibo-hot-with-your-taste
-description: 抓取微博热榜，根据用户偏好定制化筛选热点话题，通过飞书向用户推送。支持初始化配置用户偏好，支持即时反馈推送话题，支持迭代调研用户偏好，支持筛选过滤的特征规则自优化。关键词：微博热点/个性化推荐/基于反馈的自优化
+description: 抓取微博热榜，根据用户偏好定制化筛选热点话题，通过飞书向用户推送。Agent-First，支持初始化配置用户偏好，支持即时反馈推送话题，支持迭代调研用户偏好，支持筛选过滤特征规则的自优化。关键词：微博热点/个性化推荐/基于反馈的自优化/Agent-First
 ---
 
 # 微博热榜追踪
 
 ## 使用指南
 1. 直接扔到hermes等agent框架的skills目录；
-2. agent配置凭证，如“配置微博热点skill”,按照提示完成初始化配置（提供LLM和飞书凭据，配置用户偏好形成特征规则）；
+2. agent配置凭证，如“配置微博热点skill”,按照提示完成初始化配置（提供LLM和飞书凭据，扫码登陆微博，配置用户偏好形成特征规则）；
 3. agent配置定时任务，如每小时执行一次爬取，12点05，18点05各执行一次推送（推荐使用no_agent模式）。
 4. 对话agent触发式调用，如“推送微博热点”，“进行一轮微博热点偏好调研”
 
@@ -24,12 +24,15 @@ weibo-hot-with-your-taste/
 │   ├── feedback.py           # 调研偏好：将用户反馈写入 tasted_topics.jsonl
 │   ├── init/
 │   │   ├── feature.py        # 偏好初始化：偏好关键词→话题推荐及配置→召回关键词→特征生成
-│   │   └── env.py            # 凭据更新：将用户提供的凭据写入 env 文件
+│   │   ├── llm_feishu.py      # LLM/飞书凭据配置：写入 .llm.env / .feishu.env
+│   │   └── weibo.py            # 微博登录：Chromium 扫码 + 访客验证，导出完整 Cookie
 │   ├── env/
 │   │   ├── .llm.env          # LLM 配置（llm_model / llm_base_url / llm_api_key）
 │   │   ├── .llm.env.example
 │   │   ├── .feishu.env       # 飞书应用凭据
-│   │   └── .feishu.env.example
+│   │   ├── .feishu.env.example
+│   │   ├── .weibo.env        # 微博 Cookie（weibo_sub + weibo_cookies_json）
+│   │   └── .weibo.env.example
 │   ├── config/
 │   │   ├── base.yaml         # 基础配置（LLM参数、飞书重试策略）
 │   │   ├── rule.yaml         # 规则配置（category_exclude分类排除、keyword_recall关键词反写）
@@ -43,20 +46,22 @@ weibo-hot-with-your-taste/
 │   │   ├── cached_fetch_topics.jsonl # 缓存池（fetch写入话题，push后清空）
 │   │   ├── pushed_topics.jsonl # 已推送新闻记录
 │   │   ├── tasted_topics.jsonl # 用户品味档案（反馈+调研结果合并）
-│   ├── log/                  # 运行日志（按日滚动）
+│   ├── log/                  # 运行日志（按日滚动，保留7天）
 │   └── self-optimization/
 │       ├── prompt.py  # Prompt优化：根据品味数据优化判断标准
 │       └── rule.py   # 规则优化：发现未归类分类，LLM预判归属
 └── references/               # 参考文档
-    └── weibo-api-header.md   # 微博 API Header 要求
+    ├── weibo-api-header.md   # 微博公开 API 的 Header 要求
+    └── weibo-auth.md         # 微博登录态与 API 认证机制
 ```
 
 ## 核心脚本
 
 | 脚本 | 职责 |
 |------|------|
-| `init/env.py` | 将用户提供的 LLM/飞书凭据写入 `env/` 目录 |
+| `init/llm_feishu.py` | 将 LLM/飞书凭据写入 `.llm.env` / `.feishu.env` |
 | `init/feature.py` | 偏好初始化：关键词→语义匹配分类→用户选择→生成 rule.yaml + prompt.yaml |
+| `init/weibo.py` | 微博登录：模拟浏览器访问 + 二维码扫码登陆，导出完整 Cookie |
 | `fetch.py` | 抓取微博热榜 → 规则过滤 → 反写 → LLM核校 → 写入 `cached_fetch_meta.jsonl` + `cached_fetch_topics.jsonl`。LLM 成功时仅缓存 important 话题；LLM 失败时候选存入 meta，push 阶段补跑 judge |
 | `push.py` | 读 meta + topics → 按 word 去重 → 任一 cycle 为 LLM failed 时补跑 judge → 飞书卡片推送。推送后清空两个缓存文件 |
 | `feedback.py` | 接收 --word/--liked 参数，写入 tasted_topics.jsonl |
@@ -68,38 +73,66 @@ weibo-hot-with-your-taste/
 
 ### 0. 初始化
 
-#### 1. **凭据配置：**
+#### 1. **凭据配置**
 
-llm以及feishu凭据统一从 `scripts/env/` 目录读取：
+凭据文件统一在 `scripts/env/`：
 
-- `scripts/env/.llm.env` — LLM 模型名、API 地址、API 密钥
-- `scripts/env/.feishu.env` — 飞书应用 ID、密钥、群聊 ID
+| 文件 | 内容 |
+|------|------|
+| `.llm.env` | `llm_model` / `llm_base_url` / `llm_api_key` |
+| `.feishu.env` | `feishu_app_id` / `feishu_app_secret` / `feishu_chat_id` |
+| `.weibo.env` | 微博 Cookie（由 `init/weibo.py` 生成，含 SUB + cookies_json） |
 
-如果尚未配置 env 文件，agent 应向用户询问，由用户决定如何配置：
+agent 首次使用时应检查这 3 个文件是否存在，对缺失的逐一询问配置。
 
-1. 检查 `scripts/env/.llm.env` 和 `scripts/env/.feishu.env` 是否存在
-2. 如果缺少任一文件，询问用户：
-   - "检测到尚未配置凭据，是否需要创建？"
-   - 选项一：**"使用 agent 自有凭据"** → agent 读取自身的 LLM/飞书配置，作为参数传入 init/env.py
-   - 选项二：**"我手动提供"** → 用户提供凭据，agent 传入 init/env.py
-   - 选项三：**"暂不配置"** → 中止，待配置后再使用
-3. 用户选择后，执行更新：
-   ```
-   python3 scripts/init/env.py \
-     --llm-model <模型名> --llm-base-url <API地址> --llm-api-key <API密钥> \
-     --feishu-app-id <app_id> --feishu-app-secret <secret> --feishu-chat-id <chat_id>
-   ```
-   可只传 LLM 参数、只传飞书参数，或同时传入两者。
+> **⚠️ agent 注意**：`.llm.env`、`.feishu.env`、`.weibo.env` 是以 `.` 开头的隐藏文件。部分工具的 glob 匹配（如 `search_files(pattern='.llm.env')`）对隐藏文件支持有缺陷，可能返回假阴性。**用 `ls -la scripts/env/` 或直接 `Read` 目标路径确认**，不要单独依赖 glob 搜索结果。
+
+**LLM / 飞书配置**：
+
+```
+python3 scripts/init/llm_feishu.py \
+  --llm-model <模型名> --llm-base-url <API地址> --llm-api-key <API密钥> \
+  --feishu-app-id <app_id> --feishu-app-secret <secret> --feishu-chat-id <chat_id>
+```
+可只传 LLM 参数、只传飞书参数，或同时传入两者。
+
+**微博 Cookie 配置**：
+
+```
+python3 scripts/init/weibo.py
+```
+
+脚本自动检测环境：有桌面则弹出浏览器窗口，无桌面则 headless 运行并将 QR 图片保存至 `/tmp/weibo_login_qr.png`。agent 读取该图片展示给用户，用户用微博 App 扫码后自动完成。
+
+Cookie 过期后 fetch 阶段日志会输出警告，重新执行上述命令即可。
 
 #### 2. **筛选特征配置**：
 
 1. 检查 `scripts/config/.initialized` 是否存在
-2. 不存在 → 提示用户："首次使用，需要设置你的偏好。请提供3个你最关注的关键词，如：政治、经济、科技"
-3. 用户提供3个关键词 → 执行 `python3 scripts/init/feature.py keywords --kw "关键词1" "关键词2" "关键词3"`
+2. 不存在 → 提示用户："首次使用，需要设置你的偏好。请提供2-5个你最关注的关键词，如：科技、经济、国际时政"
+3. 用户提供关键词 → 执行 `python3 scripts/init/feature.py keywords --kw "关键词1" "关键词2" ...`
 4. 获取 JSON，展示猜你喜欢/猜你不喜欢的分类选项，提示各选至少5个
 5. 用户选择后，询问："是否需要添加召回关键词？当话题被分类排除但包含这些关键词时，会被救回。例如：'AI'、'芯片'。直接回复关键词即可，多个用逗号分隔。回复'不需要'跳过。"
-6. 执行 `python3 scripts/init/feature.py choices --liked "分类1,分类2,..." --disliked "分类1,分类2,..." --recall "关键词1,关键词2,..." --kw "关键词1" "关键词2" "关键词3"`
-7. 初始化完成
+6. 执行 `python3 scripts/init/feature.py choices --kw "..." --liked "..." --disliked "..." --recall "..."`
+7. 获取 JSON（`status: "pending_confirm"`），将 LLM 生成的 `yes_criteria` 和 `no_criteria` 展示给用户确认：
+
+   ```
+   **判断标准已生成，请确认：**
+
+   **重要（yes）：**
+   {yes_criteria 内容}
+
+   **不重要（no）：**
+   {no_criteria 内容}
+
+   确认无误？你可以直接确认，或提出修改意见（如"yes里加上'涉及AI监管'，no里删掉'娱乐八卦'"）。
+   ```
+
+8. 用户确认或提出修改 → 将最终版本保存为 JSON 文件（与 choices 输出结构一致，替换用户修改的 criteria），执行：
+   ```
+   python3 scripts/init/feature.py confirm --file /tmp/feature_confirm.json
+   ```
+9. 初始化完成
 
 **重新初始化：** 删除 `scripts/config/.initialized` 后再次使用即可
 
@@ -108,7 +141,7 @@ llm以及feishu凭据统一从 `scripts/env/` 目录读取：
 **抓取和推送解耦为两个独立脚本**，一天中可多次抓取，一次性推送：
 
 ```
-fetch.py:  抓取微博热榜 → 规则过滤 → 写入 ruleChecked_topics.jsonl → LLM核校
+fetch.py:  抓取微博热榜 → 规则过滤 → 写入 ruleChecked_topics.jsonl → 短话题摘要补充 → LLM核校
                 ↓              ↓                                       │
            all_topics.jsonl  topic_category.json                       │
                                                                        │ LLM成功 → important → cached_fetch_topics.jsonl
@@ -123,6 +156,8 @@ push.py:   读 meta + topics → 按 word 去重 → (多次抓取/有failed) LL
 **跨周期去重**：推送时会识别当天已推送过的热点，将其放入卡片折叠区「今日已推送热点」展示，并标注热度变化（上涨红色↑，下跌绿色↓，变化阈值10%）。
 
 **全重复处理**：如果本次推送候选全部为当天已推送热点，则发送文本消息「当前时段无新增微博热点」。
+
+**短话题摘要补充**：规则过滤后，对 ≤5 字的短话题名（如"A股"），调用微博详情 API 获取热度最高的 10 条微博，LLM 生成 20 字以内摘要，在卡片中作为副行展示。
 
 **⚠️ 推送必须通过 `push.py` 完成，禁止使用 `send_message` 等工具替代。** `push.py` 发送的是飞书卡片消息（带红色标题栏、分类标签、序号），不是纯文本。
 

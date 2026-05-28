@@ -1,9 +1,10 @@
 """公共工具：配置加载、日志、格式化"""
+import json as _json
 import os
 import sys
 import time as time_module
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 os.environ["TZ"] = "Asia/Shanghai"
@@ -31,17 +32,46 @@ INITIALIZED_PATH = CONFIG_DIR / ".initialized"
 def setup_logging(name: str) -> logging.Logger:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_level = os.environ.get("WEIBO_HOT_NEWS_LOG_LEVEL", "INFO").upper()
-    log_file = LOG_DIR / f"{name}_{datetime.now().strftime('%Y%m%d')}.log"
-    logging.basicConfig(
-        level=getattr(logging, log_level, logging.INFO),
-        format="[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
+    today = datetime.now().strftime("%Y%m%d")
+    fmt = logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.FileHandler(log_file, encoding="utf-8"),
-            logging.StreamHandler(sys.stdout),
-        ],
     )
-    return logging.getLogger(name)
+
+    # 清理超过 7 天的旧日志
+    _cleanup_old_logs(LOG_DIR, name, keep_days=7)
+
+    logger = logging.getLogger(name)
+    logger.setLevel(getattr(logging, log_level, logging.INFO))
+    logger.propagate = False
+
+    if not any(isinstance(h, logging.FileHandler) for h in logger.handlers):
+        file_handler = logging.FileHandler(
+            LOG_DIR / f"{name}_{today}.log", encoding="utf-8"
+        )
+        file_handler.setFormatter(fmt)
+        logger.addHandler(file_handler)
+
+    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+        stream_handler = logging.StreamHandler(sys.stderr)
+        stream_handler.setFormatter(fmt)
+        logger.addHandler(stream_handler)
+
+    return logger
+
+
+def _cleanup_old_logs(log_dir: Path, name: str, keep_days: int = 7):
+    """删除超过 keep_days 天的旧日志文件"""
+    cutoff = datetime.now() - timedelta(days=keep_days)
+    pattern = f"{name}_*.log"
+    for log_file in sorted(log_dir.glob(pattern)):
+        try:
+            # 从文件名提取日期，如 fetch_20260520.log → 20260520
+            mtime = datetime.fromtimestamp(log_file.stat().st_mtime)
+            if mtime < cutoff:
+                log_file.unlink()
+        except (ValueError, OSError):
+            pass
 
 
 def _load_env_file(filename: str):
@@ -68,6 +98,39 @@ def load_llm_env():
 def load_feishu_env():
     """加载 .feishu.env"""
     _load_env_file(".feishu.env")
+
+
+def load_weibo_env():
+    """加载 .weibo.env"""
+    _load_env_file(".weibo.env")
+
+
+def get_weibo_cookie() -> str:
+    """从环境变量读取微博 Cookie（SUB 字段）"""
+    return os.environ.get("weibo_sub", "")
+
+
+def get_weibo_cookies() -> dict:
+    """从环境变量读取微博完整 Cookie 字典，浏览器登录后可用"""
+    raw = os.environ.get("weibo_cookies_json", "")
+    if raw:
+        try:
+            return _json.loads(raw)
+        except _json.JSONDecodeError:
+            pass
+    # 回退：仅 SUB cookie
+    sub = get_weibo_cookie()
+    return {"SUB": sub} if sub else {}
+
+
+def resolve_llm_creds(config: dict, cli_model="", cli_base_url="", cli_api_key="") -> tuple:
+    """解析 LLM 凭据：CLI 参数优先，否则从环境变量读取"""
+    env_model, env_base_url, env_api_key = get_llm_creds()
+    return (
+        cli_model or env_model,
+        cli_base_url or env_base_url,
+        cli_api_key or env_api_key,
+    )
 
 
 def get_llm_creds() -> tuple:
@@ -155,9 +218,10 @@ def load_judge_prompt() -> str:
     )
 
 
-def retry(times=3, delay=5, backoff=2):
+def retry(times=3, delay=5, backoff=2, logger=None):
     def decorator(func):
         def wrapper(*args, **kwargs):
+            _logger = logger or logging.getLogger(func.__module__)
             current_delay = delay
             for attempt in range(1, times + 1):
                 try:
@@ -165,7 +229,7 @@ def retry(times=3, delay=5, backoff=2):
                 except Exception as e:
                     if attempt == times:
                         raise
-                    logging.getLogger("common").warning(f"第{attempt}次失败: {e}，{current_delay}秒后重试")
+                    _logger.warning(f"第{attempt}次失败: {e}，{current_delay}秒后重试")
                     time_module.sleep(current_delay)
                     current_delay *= backoff
             return None

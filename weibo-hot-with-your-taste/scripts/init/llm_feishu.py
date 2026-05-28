@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common import SCRIPT_DIR, setup_logging
 
-logger = setup_logging("update_env")
+logger = setup_logging("llm_feishu")
 
 LLM_ENV_PATH = SCRIPT_DIR / "env" / ".llm.env"
 FEISHU_ENV_PATH = SCRIPT_DIR / "env" / ".feishu.env"
@@ -51,7 +51,7 @@ def main():
 
     if not changed:
         logger.info("未提供任何凭据，无操作")
-        print("用法: python3 scripts/init/env.py --llm-model ... --llm-base-url ... --llm-api-key ... [--feishu-* ...]")
+        print("用法: python3 scripts/init/llm_feishu.py --llm-model ... --llm-base-url ... --llm-api-key ... [--feishu-* ...]")
 
 
 if __name__ == "__main__":

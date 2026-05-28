@@ -326,7 +326,7 @@ def call_llm_second_filter(topic_items: list, llm_model="", base_url="", api_key
 
 # ── 飞书 ──
 
-@retry(times=3, delay=2, backoff=2)
+@retry(times=3, delay=2, backoff=2, logger=logger)
 def _get_feishu_token(app_id: str, app_secret: str) -> str:
     """获取飞书 tenant_access_token"""
     resp = _http_sess.post(
@@ -386,10 +386,20 @@ def _build_feishu_card(date_str: str, new_topics: list, duplicate_topics: list, 
         cat = n.get("category", "")
         hot = n.get("hot_str", "")
         word = n["word"]
+        summary = n.get("summary", "")
+
         elements.append({
             "tag": "div",
             "text": {"tag": "lark_md", "content": f"**{i+1}.** {word}  `{cat}`  {hot}"}
         })
+
+        # 摘要副行
+        if summary:
+            elements.append({
+                "tag": "div",
+                "text": {"tag": "lark_md", "content": f"　└ {summary}"}
+            })
+
         elements.append({"tag": "hr"})
     
     # 重复热点折叠区（如果有）
@@ -400,7 +410,8 @@ def _build_feishu_card(date_str: str, new_topics: list, duplicate_topics: list, 
             hot = n.get("hot_str", "")
             word = n["word"]
             change_str = n.get("hot_change", {}).get("change_str", "")
-            
+            summary = n.get("summary", "")
+
             # 热度变化颜色标记
             change = n.get("hot_change", {}).get("change", 0)
             if change > 0:
@@ -409,12 +420,19 @@ def _build_feishu_card(date_str: str, new_topics: list, duplicate_topics: list, 
                 change_display = f"<font color='green'>{change_str}</font>"
             else:
                 change_display = ""
-            
+
             content = f"**{i+1}.** {word}  `{cat}`  {hot} {change_display}"
             duplicate_elements.append({
                 "tag": "div",
                 "text": {"tag": "lark_md", "content": content.strip()}
             })
+
+            # 摘要副行
+            if summary:
+                duplicate_elements.append({
+                    "tag": "div",
+                    "text": {"tag": "lark_md", "content": f"　└ {summary}"}
+                })
         
         elements.append({
             "tag": "collapsible",
@@ -457,7 +475,7 @@ def send_push_card(date_str: str, new_topics: list, duplicate_topics: list, app_
 
     retry_times = BASE_CONFIG["feishu"]["retry_times"]
     retry_delay = BASE_CONFIG["feishu"]["retry_delay"]
-    send_with_retry = retry(times=retry_times, delay=retry_delay)(_send_feishu_message)
+    send_with_retry = retry(times=retry_times, delay=retry_delay, logger=logger)(_send_feishu_message)
     send_with_retry(token, chat_id, payload)
     logger.info("飞书推送卡片发送成功")
 

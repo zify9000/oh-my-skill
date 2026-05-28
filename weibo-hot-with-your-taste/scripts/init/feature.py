@@ -13,7 +13,7 @@ import openai
 
 from common import (
     SCRIPT_DIR, DATA_DIR, CONFIG_DIR,
-    CATEGORY_STORE_PATH, RULE_CONFIG_PATH, PROMPT_PATH, INITIALIZED_PATH,
+    CATEGORY_STORE_PATH, RULE_CONFIG_PATH, INITIALIZED_PATH,
     setup_logging, load_base_config, load_llm_env, load_prompt, resolve_llm_creds,
 )
 
@@ -169,18 +169,13 @@ def call_llm_generate_criteria(keywords, liked, disliked, recall, llm_model="", 
         sys.exit(1)
 
 
-def generate_rule_yaml(liked, disliked, keywords, recall):
+def generate_rule_yaml(disliked, recall):
     """生成 rule.yaml 内容"""
     # category_exclude: 用户不喜欢的分类
     category_exclude = list(disliked)
 
-    # keyword_recall: 用户喜欢的分类 + 关键词 + 召回关键词（去重保序）
-    seen = set()
-    keyword_recall = []
-    for item in liked + keywords + recall:
-        if item not in seen:
-            seen.add(item)
-            keyword_recall.append(item)
+    # keyword_recall: 仅用户的召回关键词
+    keyword_recall = list(recall)
 
     rule_config = {
         "category_exclude": category_exclude,
@@ -218,14 +213,14 @@ def write_initialized(keywords, liked, disliked, recall, yes_criteria, no_criter
 
 
 def step_choices(args):
-    """Step 2: 用户选择 → 生成配置"""
-    keywords = args.kw
+    """Step 2: 用户选择 → LLM 生成判断标准（待确认）"""
+    keywords = list(args.kw)
     liked = [x.strip() for x in args.liked.split(",") if x.strip()]
     disliked = [x.strip() for x in args.disliked.split(",") if x.strip()]
     recall = [x.strip() for x in args.recall.split(",") if x.strip()] if args.recall else []
 
-    if len(keywords) != 3:
-        logger.error("请提供恰好3个关键词")
+    if len(keywords) < 2:
+        logger.error("请提供至少2个关键词")
         sys.exit(1)
     if len(liked) < 5:
         logger.error(f"感兴趣的分类至少选5个，当前{len(liked)}个")
@@ -241,13 +236,37 @@ def step_choices(args):
         keywords, liked, disliked, recall, llm_model, llm_base_url, llm_api_key
     )
 
-    rule_config = generate_rule_yaml(liked, disliked, keywords, recall)
+    output = {
+        "status": "pending_confirm",
+        "keywords": keywords,
+        "liked": liked,
+        "disliked": disliked,
+        "recall": recall,
+        "yes_criteria": yes_criteria,
+        "no_criteria": no_criteria,
+        "next_step": "确认后执行: python3 scripts/init/feature.py confirm --file <保存上述JSON的文件路径>",
+    }
+    print(json.dumps(output, ensure_ascii=False))
+
+
+def step_confirm(args):
+    """Step 3: 用户确认 → 写入配置"""
+    with open(args.file, encoding="utf-8") as f:
+        data = json.load(f)
+
+    keywords = data["keywords"]
+    liked = data["liked"]
+    disliked = data["disliked"]
+    recall = data.get("recall", [])
+    yes_criteria = data["yes_criteria"]
+    no_criteria = data["no_criteria"]
+
+    rule_config = generate_rule_yaml(disliked, recall)
     write_initialized(keywords, liked, disliked, recall, yes_criteria, no_criteria)
 
     output = {
         "status": "ok",
         "rule": rule_config,
-        "prompt_updated": True,
     }
     print(json.dumps(output, ensure_ascii=False))
 
@@ -259,14 +278,14 @@ def main():
 
     # Step 1: keywords
     p1 = subparsers.add_parser("keywords", help="关键词→语义匹配分类")
-    p1.add_argument("--kw", nargs=3, required=True, help="3个关注关键词")
+    p1.add_argument("--kw", nargs="*", required=True, help="关注关键词（2-5个）")
     p1.add_argument("--llm-model", default="", help="LLM 模型名")
     p1.add_argument("--llm-base-url", default="", help="LLM API 地址")
     p1.add_argument("--llm-api-key", default="", help="LLM API 密钥")
 
     # Step 2: choices
-    p2 = subparsers.add_parser("choices", help="用户选择→生成配置")
-    p2.add_argument("--kw", nargs=3, required=True, help="3个关注关键词")
+    p2 = subparsers.add_parser("choices", help="用户选择→LLM 生成判断标准（待确认）")
+    p2.add_argument("--kw", nargs="*", required=True, help="关注关键词")
     p2.add_argument("--liked", required=True, help="逗号分隔的感兴趣分类")
     p2.add_argument("--disliked", required=True, help="逗号分隔的不感兴趣分类")
     p2.add_argument("--recall", default="", help="逗号分隔的召回关键词")
@@ -274,12 +293,18 @@ def main():
     p2.add_argument("--llm-base-url", default="", help="LLM API 地址")
     p2.add_argument("--llm-api-key", default="", help="LLM API 密钥")
 
+    # Step 3: confirm
+    p3 = subparsers.add_parser("confirm", help="确认判断标准 → 写入配置")
+    p3.add_argument("--file", required=True, help="choices 输出的 JSON 文件路径（可含用户修改）")
+
     args = parser.parse_args()
 
     if args.step == "keywords":
         step_keywords(args)
     elif args.step == "choices":
         step_choices(args)
+    elif args.step == "confirm":
+        step_confirm(args)
 
 
 if __name__ == "__main__":

@@ -6,3 +6,8 @@ llm:
 feishu:
   retry_times: 3
   retry_delay: 10
+
+summary:
+  short_topic_max_len: 5     # 短话题名阈值（字数），≤此值才补充摘要
+  max_summary_len: 20        # 摘要最大字数
+  top_weibo_count: 10        # 取热度最高的N条微博

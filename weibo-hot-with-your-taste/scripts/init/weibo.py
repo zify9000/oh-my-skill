@@ -40,28 +40,36 @@ async def _login(timeout: int = 180) -> dict:
     tab = browser.main_tab
 
     await tab.get(LOGIN_URL)
-    await tab.sleep(5)
 
-    # 提取 QR 图片并下载
-    qr_result = await tab.evaluate("""
-        (() => {
-            const imgs = document.querySelectorAll('img');
-            for (const img of imgs) {
-                if (img.src.includes('qr.weibo.cn') && img.width > 50) {
-                    return JSON.stringify({found: true, src: img.src});
+    # 轮询等待 QR 码出现（网络慢或页面渲染延迟时也能正常工作）
+    qr_data = {}
+    for attempt in range(15):
+        await tab.sleep(2)
+        qr_result = await tab.evaluate("""
+            (() => {
+                const imgs = document.querySelectorAll('img');
+                for (const img of imgs) {
+                    if (img.src.includes('qr.weibo.cn') && img.width > 50) {
+                        return JSON.stringify({found: true, src: img.src});
+                    }
                 }
-            }
-            return JSON.stringify({found: false, total: imgs.length});
-        })()
-    """)
+                return JSON.stringify({found: false, total: imgs.length});
+            })()
+        """)
+        qr_data = json.loads(qr_result)
+        if qr_data.get("found"):
+            break
+        logger.info(f"等待二维码加载... ({attempt + 1}/15)")
 
-    qr_data = json.loads(qr_result)
     if qr_data.get("found"):
         logger.info(f"下载二维码: {qr_data['src'][:80]}...")
         urlretrieve(qr_data["src"], str(QR_IMAGE_PATH))
         logger.info(f"二维码已保存: {QR_IMAGE_PATH}")
     else:
-        logger.warning(f"未找到二维码 (共 {qr_data.get('total', 0)} 张图片)")
+        raise RuntimeError(
+            f"二维码加载失败：等待 30 秒后仍未找到 (共 {qr_data.get('total', 0)} 张图片)。"
+            f"可能原因：网络不通、页面结构变化、或微博限制了当前 IP。"
+        )
 
     print(json.dumps({
         "action": "scan_qr_code",

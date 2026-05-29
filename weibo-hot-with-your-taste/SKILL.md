@@ -102,7 +102,9 @@ python3 scripts/init/llm_feishu.py \
 python3 scripts/init/weibo.py
 ```
 
-脚本自动检测环境：有桌面则弹出浏览器窗口，无桌面则 headless 运行并将 QR 图片保存至 `/tmp/weibo_login_qr.png`。agent 读取该图片展示给用户，用户用微博 App 扫码后自动完成。
+**直接执行上述命令，不要自己重写登录逻辑。** 脚本自动检测环境：有桌面则弹出浏览器窗口，无桌面则 headless 运行并将 QR 图片保存至 `/tmp/weibo_login_qr.png`。agent 读取该图片展示给用户，用户用微博 App 扫码后自动完成。
+
+> **环境要求**：`nodriver >= 0.50`。Docker 容器需确保 Chromium 依赖齐全（`--no-sandbox` 由脚本自动处理）。
 
 Cookie 过期后 fetch 阶段日志会输出警告，重新执行上述命令即可。
 

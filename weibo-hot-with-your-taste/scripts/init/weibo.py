@@ -1,22 +1,19 @@
-"""微博登录：通过 Chromium 扫码 + 访客验证，导出完整 Cookie
+"""微博登录：通过 Chromium headless 扫码，导出完整 Cookie
 
 依赖: pip install nodriver
 
-自动适配环境：
-  - 有 DISPLAY：弹出浏览器窗口，用户直接扫码
-  - 无 DISPLAY：headless 模式，QR 图片保存至 /tmp/weibo_login_qr.png，agent 展示给用户
+QR 图片保存至 /tmp/weibo_login_qr.png，agent 展示给用户扫码。
 
 使用:
   python scripts/init/weibo.py
+  python scripts/init/weibo.py --no-sandbox            # Docker/snap 环境
+  python scripts/init/weibo.py --browser-path /opt/chrome/google-chrome
 """
 
 import sys
-import os
 import json
 import asyncio
 import argparse
-import shutil
-import subprocess
 from pathlib import Path
 from urllib.request import urlretrieve
 
@@ -30,31 +27,6 @@ WEIBO_ENV_PATH = SCRIPT_DIR / "env" / ".weibo.env"
 QR_IMAGE_PATH = Path("/tmp/weibo_login_qr.png")
 
 LOGIN_URL = "https://weibo.com/newlogin?tabtype=weibo&openLoginLayer=1"
-
-
-def _should_use_headless() -> bool:
-    """判断是否应使用 headless 模式。
-
-    检测逻辑：
-    1. DISPLAY 未设置 → headless
-    2. DISPLAY 已设置但 xdpyinfo 探测失败 → headless
-    3. DISPLAY 已设置且 X 服务器可达 → headful
-    """
-    display = os.environ.get("DISPLAY", "")
-    if not display:
-        return True
-    # 检查 X 服务器是否真实可用
-    if shutil.which("xdpyinfo"):
-        try:
-            subprocess.run(
-                ["xdpyinfo", "-display", display],
-                capture_output=True, timeout=5,
-            )
-            return False  # X 服务器可用，使用 headful
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
-    # 无法确认 X 服务器可用，回退到 headless
-    return True
 
 
 def _check_nodriver():
@@ -72,46 +44,12 @@ def _check_nodriver():
         sys.exit(1)
 
 
-def _check_environment():
-    """检查运行环境中可能干扰 Chromium 的因素，输出诊断信息"""
-    warnings = []
-
-    # 1. 检查 snap 版 Chromium（沙箱限制可能导致 CDP 连接失败）
-    browser_bin = shutil.which("chromium-browser") or shutil.which("chromium") or ""
-    if browser_bin:
-        real_bin = os.path.realpath(browser_bin)
-        if "/snap/" in real_bin:
-            warnings.append(
-                "检测到 snap 版 Chromium（%s）。snap 沙箱限制可能导致 CDP 连接失败。\n"
-                "  建议: (1) 安装非 snap 版 Chromium，或 (2) 使用 --no-sandbox 参数" % real_bin
-            )
-
-    # 2. 检查 ld.so.preload（安全软件注入可能干扰 Chromium 初始化）
-    preload_path = "/etc/ld.so.preload"
-    if os.path.exists(preload_path):
-        try:
-            with open(preload_path) as f:
-                libs = [line.strip() for line in f if line.strip() and not line.startswith("#")]
-            if libs:
-                warnings.append(
-                    "检测到 /etc/ld.so.preload 中有预加载库: %s\n"
-                    "  这些库可能干扰 Chromium 启动。如果浏览器无法启动，可尝试临时移除。" % ", ".join(libs)
-                )
-        except (OSError, PermissionError):
-            pass
-
-    for w in warnings:
-        logger.warning(w)
-
-
-async def _login(timeout: int = 180, sandbox: bool = True, browser_path: str = "", force_headless: bool = False) -> dict:
+async def _login(timeout: int = 180, sandbox: bool = True, browser_path: str = "") -> dict:
     import nodriver as uc
 
-    use_headless = force_headless if force_headless else _should_use_headless()
-    mode = "headless" if use_headless else "headful"
-    logger.info(f"正在启动 Chromium（{mode} 模式, sandbox={sandbox}）...")
+    logger.info(f"正在启动 Chromium（headless 模式, sandbox={sandbox}）...")
     browser = await uc.start(
-        headless=use_headless,
+        headless=True,
         sandbox=sandbox,
         browser_executable_path=browser_path or None,
     )
@@ -120,7 +58,7 @@ async def _login(timeout: int = 180, sandbox: bool = True, browser_path: str = "
     await tab.get(LOGIN_URL)
 
     # 等待页面 JavaScript 完成初始化（过早 evaluate 会打断 QR 码渲染）
-    await tab.sleep(5)
+    await tab.sleep(15)
 
     # 轮询等待 QR 码出现
     qr_data = {}
@@ -212,13 +150,9 @@ def main():
     parser.add_argument("--timeout", type=int, default=180, help="扫码超时（秒）")
     parser.add_argument("--no-sandbox", dest="sandbox", action="store_false",
                         help="禁用 Chromium 沙箱（Docker/snap 环境可能需要）")
-    parser.add_argument("--headless", action="store_true",
-                        help="强制使用 headless 模式")
     parser.add_argument("--browser-path", type=str, default="",
                         help="指定 Chromium 浏览器路径（默认自动检测）")
     args = parser.parse_args()
-
-    _check_environment()
 
     try:
         cookie_dict = asyncio.run(
@@ -226,7 +160,6 @@ def main():
                 timeout=args.timeout,
                 sandbox=args.sandbox,
                 browser_path=args.browser_path,
-                force_headless=args.headless,
             )
         )
     except TimeoutError:

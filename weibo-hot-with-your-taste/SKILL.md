@@ -25,7 +25,7 @@ weibo-hot-with-your-taste/
 │   ├── init/
 │   │   ├── feature.py        # 偏好初始化：偏好关键词→话题推荐及配置→召回关键词→特征生成
 │   │   ├── llm_feishu.py      # LLM/飞书凭据配置：写入 .llm.env / .feishu.env
-│   │   └── weibo.py            # 微博登录：Chromium 扫码 + 访客验证，导出完整 Cookie
+│   │   └── weibo.py            # 微博登录：Chromium headless 扫码，导出完整 Cookie
 │   ├── env/
 │   │   ├── .llm.env          # LLM 配置（llm_model / llm_base_url / llm_api_key）
 │   │   ├── .llm.env.example
@@ -61,7 +61,7 @@ weibo-hot-with-your-taste/
 |------|------|
 | `init/llm_feishu.py` | 将 LLM/飞书凭据写入 `.llm.env` / `.feishu.env` |
 | `init/feature.py` | 偏好初始化：关键词→语义匹配分类→用户选择→生成 rule.yaml + prompt.yaml |
-| `init/weibo.py` | 微博登录：模拟浏览器访问 + 二维码扫码登陆，导出完整 Cookie |
+| `init/weibo.py` | 微博登录：Chromium headless 扫码，导出完整 Cookie。支持 --no-sandbox（Docker/snap 环境）和 --browser-path（指定浏览器路径） |
 | `fetch.py` | 抓取微博热榜 → 规则过滤 → 反写 → LLM核校 → 写入 `cached_fetch_meta.jsonl` + `cached_fetch_topics.jsonl`。LLM 成功时仅缓存 important 话题；LLM 失败时候选存入 meta，push 阶段补跑 judge |
 | `push.py` | 读 meta + topics → 按 word 去重 → 任一 cycle 为 LLM failed 时补跑 judge → 飞书卡片推送。推送后清空两个缓存文件 |
 | `feedback.py` | 接收 --word/--liked 参数，写入 tasted_topics.jsonl |
@@ -102,9 +102,14 @@ python3 scripts/init/llm_feishu.py \
 python3 scripts/init/weibo.py
 ```
 
-**直接执行上述命令，不要自己重写登录逻辑。** 脚本自动检测环境：有桌面则弹出浏览器窗口，无桌面则 headless 运行并将 QR 图片保存至 `/tmp/weibo_login_qr.png`。agent 读取该图片展示给用户，用户用微博 App 扫码后自动完成。
+**直接执行上述命令，不要自己重写登录逻辑。** 脚本以 headless 模式运行 Chromium，QR 图片保存至 `/tmp/weibo_login_qr.png`。agent 读取该图片展示给用户，用户用微博 App 扫码后自动完成登录并保存 Cookie。
 
-> **环境要求**：`nodriver >= 0.50`（低版本在 headless 环境下可能 CDP 连接失败）。
+> **环境要求**：`nodriver >= 0.50`，系统需安装 Chromium 浏览器。
+
+> **常见问题**：
+> - Docker/snap 环境启动失败 → 加 `--no-sandbox` 参数
+> - 指定其他浏览器 → `--browser-path /opt/google/chrome/google-chrome`
+> - 二维码加载失败 → 稍等重试；多次失败可能是 IP 被微博限制，建议手动从浏览器复制 SUB Cookie 写入 `.weibo.env`
 
 Cookie 过期后 fetch 阶段日志会输出警告，重新执行上述命令即可。
 

@@ -1,4 +1,4 @@
-"""偏好初始化脚本：Step 1 关键词→语义匹配分类，Step 2 用户选择→生成配置"""
+"""偏好初始化脚本：Step 1 领域关键词→语义匹配分类，Step 2 用户选择→生成配置"""
 import sys
 import json
 import re
@@ -21,7 +21,7 @@ logger = setup_logging("init")
 CONFIG = load_base_config()
 
 
-# ── Step 1: 关键词 → 语义匹配分类 ──
+# ── Step 1: 领域关键词 → 语义匹配分类 ──
 
 def load_categories() -> list:
     """从 topic_category.json 加载全部分类"""
@@ -33,17 +33,17 @@ def load_categories() -> list:
     return store.get("categories", [])
 
 
-def call_llm_match_keywords(keywords: list, categories: list, llm_model="", base_url="", api_key="") -> dict:
-    """LLM 根据关键词从分类列表中选出 liked/disliked 各10个"""
+def call_llm_match_categories(domain_keywords: list, categories: list, llm_model="", base_url="", api_key="") -> dict:
+    """LLM 根据领域关键词从分类列表中选出 liked/disliked 各10个"""
     if not api_key or not llm_model or not base_url:
         logger.error("LLM 配置不完整")
         sys.exit(1)
 
-    kw_str = "、".join(keywords)
-    cat_list = "\n".join(f"{i+1}. {cat}" for i, cat in enumerate(categories))
+    domain_kw_str = "、".join(domain_keywords)
+    category_list = "\n".join(f"{i+1}. {category}" for i, category in enumerate(categories))
 
     prompt_template = load_prompt("init_keywords_prompt")
-    prompt = prompt_template.format(keywords=kw_str, category_list=cat_list)
+    prompt = prompt_template.format(domain_keywords=domain_kw_str, category_list=category_list)
 
     client = openai.OpenAI(api_key=api_key, base_url=base_url)
 
@@ -87,23 +87,23 @@ def call_llm_match_keywords(keywords: list, categories: list, llm_model="", base
         sys.exit(1)
 
 
-def step_keywords(args):
-    """Step 1: 关键词 → 语义匹配"""
-    keywords = args.kw
-    if len(keywords) != 3:
-        logger.error("请提供恰好3个关键词")
+def step_domain_keywords(args):
+    """Step 1: 领域关键词 → 语义匹配"""
+    domain_keywords = args.domain_kw
+    if len(domain_keywords) != 3:
+        logger.error("请提供恰好3个领域关键词")
         sys.exit(1)
 
     categories = load_categories()
-    logger.info(f"加载 {len(categories)} 个分类，关键词: {keywords}")
+    logger.info(f"加载 {len(categories)} 个分类，领域关键词: {domain_keywords}")
 
     llm_model, llm_base_url, llm_api_key = resolve_llm_creds(
         CONFIG, args.llm_model, args.llm_base_url, args.llm_api_key
     )
-    result = call_llm_match_keywords(keywords, categories, llm_model, llm_base_url, llm_api_key)
+    result = call_llm_match_categories(domain_keywords, categories, llm_model, llm_base_url, llm_api_key)
 
     output = {
-        "keywords": keywords,
+        "domain_keywords": domain_keywords,
         "liked": result["liked"],
         "disliked": result["disliked"],
     }
@@ -112,20 +112,20 @@ def step_keywords(args):
 
 # ── Step 2: 用户选择 → 生成配置 ──
 
-def call_llm_generate_criteria(keywords, liked, disliked, recall, llm_model="", base_url="", api_key="") -> tuple:
+def call_llm_generate_criteria(domain_keywords, liked, disliked, recall, llm_model="", base_url="", api_key="") -> tuple:
     """LLM 根据用户偏好生成 yes/no 判断标准，返回 (yes_criteria, no_criteria)"""
     if not api_key or not llm_model or not base_url:
         logger.error("LLM 配置不完整")
         sys.exit(1)
 
-    kw_str = "、".join(keywords)
+    domain_kw_str = "、".join(domain_keywords)
     liked_str = "、".join(liked)
     disliked_str = "、".join(disliked)
     recall_str = "、".join(recall) if recall else "无"
 
     prompt_template = load_prompt("init_criteria_prompt")
     prompt = prompt_template.format(
-        keywords=kw_str,
+        domain_keywords=domain_kw_str,
         liked_categories=liked_str,
         disliked_categories=disliked_str,
         recall_keywords=recall_str,
@@ -174,12 +174,12 @@ def generate_rule_yaml(disliked, recall):
     # category_exclude: 用户不喜欢的分类
     category_exclude = list(disliked)
 
-    # keyword_recall: 仅用户的召回关键词
-    keyword_recall = list(recall)
+    # recall_keywords: 用户的召回关键词
+    recall_keywords = list(recall)
 
     rule_config = {
         "category_exclude": category_exclude,
-        "keyword_recall": keyword_recall,
+        "recall_keywords": recall_keywords,
     }
 
     # 备份旧文件
@@ -191,16 +191,16 @@ def generate_rule_yaml(disliked, recall):
     with open(RULE_CONFIG_PATH, "w", encoding="utf-8") as f:
         yaml.dump(rule_config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
-    logger.info(f"rule.yaml 已生成: exclude={len(category_exclude)}, recall={len(keyword_recall)}")
+    logger.info(f"rule.yaml 已生成: exclude={len(category_exclude)}, recall={len(recall_keywords)}")
     return rule_config
 
 
-def write_initialized(keywords, liked, disliked, recall, yes_criteria, no_criteria):
+def write_initialized(domain_keywords, liked, disliked, recall, yes_criteria, no_criteria):
     """写入 .initialized 标记文件"""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     record = {
         "initialized_at": datetime.now().isoformat(),
-        "keywords": keywords,
+        "domain_keywords": domain_keywords,
         "liked_categories": liked,
         "disliked_categories": disliked,
         "recall_keywords": recall,
@@ -214,13 +214,13 @@ def write_initialized(keywords, liked, disliked, recall, yes_criteria, no_criter
 
 def step_choices(args):
     """Step 2: 用户选择 → LLM 生成判断标准（待确认）"""
-    keywords = list(args.kw)
+    domain_keywords = list(args.domain_kw)
     liked = [x.strip() for x in args.liked.split(",") if x.strip()]
     disliked = [x.strip() for x in args.disliked.split(",") if x.strip()]
     recall = [x.strip() for x in args.recall.split(",") if x.strip()] if args.recall else []
 
-    if len(keywords) < 2:
-        logger.error("请提供至少2个关键词")
+    if len(domain_keywords) < 2:
+        logger.error("请提供至少2个领域关键词")
         sys.exit(1)
     if len(liked) < 5:
         logger.error(f"感兴趣的分类至少选5个，当前{len(liked)}个")
@@ -233,12 +233,12 @@ def step_choices(args):
         CONFIG, args.llm_model, args.llm_base_url, args.llm_api_key
     )
     yes_criteria, no_criteria = call_llm_generate_criteria(
-        keywords, liked, disliked, recall, llm_model, llm_base_url, llm_api_key
+        domain_keywords, liked, disliked, recall, llm_model, llm_base_url, llm_api_key
     )
 
     output = {
         "status": "pending_confirm",
-        "keywords": keywords,
+        "domain_keywords": domain_keywords,
         "liked": liked,
         "disliked": disliked,
         "recall": recall,
@@ -254,7 +254,7 @@ def step_confirm(args):
     with open(args.file, encoding="utf-8") as f:
         data = json.load(f)
 
-    keywords = data["keywords"]
+    domain_keywords = data["domain_keywords"]
     liked = data["liked"]
     disliked = data["disliked"]
     recall = data.get("recall", [])
@@ -262,7 +262,7 @@ def step_confirm(args):
     no_criteria = data["no_criteria"]
 
     rule_config = generate_rule_yaml(disliked, recall)
-    write_initialized(keywords, liked, disliked, recall, yes_criteria, no_criteria)
+    write_initialized(domain_keywords, liked, disliked, recall, yes_criteria, no_criteria)
 
     output = {
         "status": "ok",
@@ -276,16 +276,16 @@ def main():
     parser = argparse.ArgumentParser(description="偏好初始化")
     subparsers = parser.add_subparsers(dest="step", required=True)
 
-    # Step 1: keywords
-    p1 = subparsers.add_parser("keywords", help="关键词→语义匹配分类")
-    p1.add_argument("--kw", nargs="*", required=True, help="关注关键词（2-5个）")
+    # Step 1: domain-keywords
+    p1 = subparsers.add_parser("domain-keywords", help="领域关键词→语义匹配分类")
+    p1.add_argument("--domain-kw", nargs="*", required=True, help="领域关注关键词（2-5个）")
     p1.add_argument("--llm-model", default="", help="LLM 模型名")
     p1.add_argument("--llm-base-url", default="", help="LLM API 地址")
     p1.add_argument("--llm-api-key", default="", help="LLM API 密钥")
 
     # Step 2: choices
     p2 = subparsers.add_parser("choices", help="用户选择→LLM 生成判断标准（待确认）")
-    p2.add_argument("--kw", nargs="*", required=True, help="关注关键词")
+    p2.add_argument("--domain-kw", nargs="*", required=True, help="领域关注关键词")
     p2.add_argument("--liked", required=True, help="逗号分隔的感兴趣分类")
     p2.add_argument("--disliked", required=True, help="逗号分隔的不感兴趣分类")
     p2.add_argument("--recall", default="", help="逗号分隔的召回关键词")
@@ -299,8 +299,8 @@ def main():
 
     args = parser.parse_args()
 
-    if args.step == "keywords":
-        step_keywords(args)
+    if args.step == "domain-keywords":
+        step_domain_keywords(args)
     elif args.step == "choices":
         step_choices(args)
     elif args.step == "confirm":

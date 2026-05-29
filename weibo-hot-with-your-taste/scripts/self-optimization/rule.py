@@ -30,10 +30,10 @@ LABEL_MAP = {
 }
 
 
-def find_unclassified_categories(keyword_store: dict, rule_config: dict) -> list:
-    all_cats = set(keyword_store.get("categories", []))
+def find_unclassified_categories(category_store: dict, rule_config: dict) -> list:
+    all_cats = set(category_store.get("categories", []))
     exclude = set(rule_config.get("category_exclude", []))
-    star = set(rule_config.get("keyword_recall", []))
+    star = set(rule_config.get("recall_keywords", []))
     classified = exclude | star
     return sorted(all_cats - classified)
 
@@ -41,12 +41,12 @@ def find_unclassified_categories(keyword_store: dict, rule_config: dict) -> list
 def llm_classify_categories(categories: list, rule_config: dict, llm_model="", base_url="", api_key="") -> dict:
     if not api_key or not llm_model or not base_url:
         logger.warning("LLM 配置不完整，所有分类默认标记为 skip")
-        return {cat: CHOICE_SKIP for cat in categories}
+        return {category: CHOICE_SKIP for category in categories}
 
     exclude = rule_config.get("category_exclude", [])
-    star = rule_config.get("keyword_recall", [])
+    star = rule_config.get("recall_keywords", [])
 
-    cat_list = "\n".join(f"{i+1}. {cat}" for i, cat in enumerate(categories))
+    category_list = "\n".join(f"{i+1}. {category}" for i, category in enumerate(categories))
 
     prompt = f"""你是一个微博热搜分类专家。请判断以下微博热搜分类应归属哪一类。
 
@@ -59,7 +59,7 @@ def llm_classify_categories(categories: list, rule_config: dict, llm_model="", b
 {', '.join(star)}
 
 === 待分类列表 ===
-{cat_list}
+{category_list}
 
 === 归类标准 ===
 
@@ -88,7 +88,7 @@ def llm_classify_categories(categories: list, rule_config: dict, llm_model="", b
         content = resp.choices[0].message.content
         if not content:
             logger.warning("LLM 返回为空")
-            return {cat: CHOICE_SKIP for cat in categories}
+            return {category: CHOICE_SKIP for category in categories}
 
         result = {}
         for line in content.strip().split("\n"):
@@ -102,16 +102,16 @@ def llm_classify_categories(categories: list, rule_config: dict, llm_model="", b
                 if 1 <= idx <= len(categories):
                     result[categories[idx - 1]] = choice
 
-        for cat in categories:
-            if cat not in result:
-                result[cat] = CHOICE_SKIP
-                logger.warning(f"LLM 未返回 {cat} 的判断，默认 skip")
+        for category in categories:
+            if category not in result:
+                result[category] = CHOICE_SKIP
+                logger.warning(f"LLM 未返回 {category} 的判断，默认 skip")
 
         return result
 
     except Exception as e:
         logger.error(f"LLM 调用失败: {e}")
-        return {cat: CHOICE_SKIP for cat in categories}
+        return {category: CHOICE_SKIP for category in categories}
 
 
 def main():
@@ -123,9 +123,9 @@ def main():
         return
 
     with open(CATEGORY_STORE_PATH, encoding="utf-8") as f:
-        keyword_store = json.load(f)
+        category_store = json.load(f)
 
-    unclassified = find_unclassified_categories(keyword_store, rule_config)
+    unclassified = find_unclassified_categories(category_store, rule_config)
 
     if not unclassified:
         result = {"ready": False, "message": "所有分类已归类"}
@@ -138,9 +138,9 @@ def main():
     llm_base_url = os.environ.get("llm_base_url", "")
     llm_api_key = os.environ.get("llm_api_key", "")
     recommendations = llm_classify_categories(unclassified, rule_config, llm_model, llm_base_url, llm_api_key)
-    for cat, choice in recommendations.items():
+    for category, choice in recommendations.items():
         label = LABEL_MAP.get(choice, choice)
-        logger.info(f"  {cat} → {label}")
+        logger.info(f"  {category} → {label}")
 
     result = {
         "ready": True,

@@ -23,7 +23,7 @@ BASE_CONFIG = load_base_config()
 RULE_CONFIG = load_rule_config()
 
 EXCLUDE_CATEGORIES = set(RULE_CONFIG.get("category_exclude", []))
-RECALL_KEYWORDS = set(RULE_CONFIG.get("keyword_recall", []))
+RECALL_KEYWORDS = set(RULE_CONFIG.get("recall_keywords", []))
 
 SUMMARY_CONFIG = BASE_CONFIG.get("summary", {})
 SHORT_TOPIC_MAX_LEN = SUMMARY_CONFIG.get("short_topic_max_len", 5)
@@ -87,7 +87,7 @@ def apply_rules(all_raw: list) -> tuple:
         }
 
         combined_text = f"{category} {field_tag} {word} {note}"
-        excluded_by_cat = any(kw in (category or "") or kw in (field_tag or "") for kw in EXCLUDE_CATEGORIES)
+        excluded_by_cat = any(excluded_cat in (category or "") or excluded_cat in (field_tag or "") for excluded_cat in EXCLUDE_CATEGORIES)
 
         if excluded_by_cat:
             rescued = any(kw in combined_text for kw in RECALL_KEYWORDS)
@@ -252,8 +252,8 @@ def call_llm_judge(topic_items: list, llm_model="", base_url="", api_key="") -> 
 
     topic_lines = []
     for i, n in enumerate(topic_items):
-        cat = n.get("category") or n.get("field_tag") or ""
-        topic_lines.append(f"{i+1}. {n.get('word','')} | 分类:{cat} | 热度:{n.get('hot_str','')}")
+        category = n.get("category") or n.get("field_tag") or ""
+        topic_lines.append(f"{i+1}. {n.get('word','')} | 分类:{category} | 热度:{n.get('hot_str','')}")
 
     topics_text = "\n".join(topic_lines)
     prompt_template = load_judge_prompt()
@@ -322,10 +322,10 @@ def update_category_store(all_raw: list):
     new_cats = 0
 
     for item in all_raw:
-        for cat in (item.get("category") or "").split(","):
-            cat = cat.strip()
-            if cat and cat not in store["categories"]:
-                store["categories"].append(cat)
+        for category in (item.get("category") or "").split(","):
+            category = category.strip()
+            if category and category not in store["categories"]:
+                store["categories"].append(category)
                 new_cats += 1
 
     store["last_updated"] = now.isoformat()

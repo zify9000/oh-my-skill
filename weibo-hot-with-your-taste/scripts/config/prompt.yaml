@@ -3,7 +3,7 @@ judge_prompt: |
 
   === 用户偏好 ===
 
-  关注关键词：{keywords}
+  关注关键词：{domain_keywords}
   感兴趣的分类：{liked_categories}
   不感兴趣的分类：{disliked_categories}
   召回关键词（被排除分类但命中时救回）：{recall_keywords}
@@ -48,7 +48,7 @@ second_filter_prompt: |
   ...
 
 init_keywords_prompt: |
-  你是一个用户偏好分析专家。用户提供了3个关注关键词：{keywords}。
+  你是一个用户偏好分析专家。用户提供了3个关注关键词：{domain_keywords}。
 
   以下是微博热搜的所有分类：
   {category_list}
@@ -72,7 +72,7 @@ init_criteria_prompt: |
   你是一个新闻筛选 prompt 设计专家。请根据以下用户偏好，生成新闻判断标准。
 
   === 用户偏好 ===
-  关注关键词：{keywords}
+  关注关键词：{domain_keywords}
   感兴趣的分类：{liked_categories}
   不感兴趣的分类：{disliked_categories}
   召回关键词：{recall_keywords}

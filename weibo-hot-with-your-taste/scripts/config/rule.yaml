@@ -2,4 +2,4 @@
 category_exclude: []
 
 # 召回关键词：被排除分类中的话题，若包含这些关键词则救回
-keyword_recall: []
+recall_keywords: []

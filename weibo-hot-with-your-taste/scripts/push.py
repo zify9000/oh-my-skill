@@ -202,8 +202,8 @@ def call_llm_judge(topic_items: list, llm_model="", base_url="", api_key="") -> 
 
     topic_lines = []
     for i, n in enumerate(topic_items):
-        cat = n.get("category") or n.get("field_tag") or ""
-        topic_lines.append(f"{i+1}. {n.get('word','')} | 分类:{cat} | 热度:{n.get('hot_str','')}")
+        category = n.get("category") or n.get("field_tag") or ""
+        topic_lines.append(f"{i+1}. {n.get('word','')} | 分类:{category} | 热度:{n.get('hot_str','')}")
 
     topics_text = "\n".join(topic_lines)
     prompt_template = load_judge_prompt()
@@ -274,8 +274,8 @@ def call_llm_second_filter(topic_items: list, llm_model="", base_url="", api_key
 
     topic_lines = []
     for i, n in enumerate(topic_items):
-        cat = n.get("category", "")
-        topic_lines.append(f"{i+1}. {n['word']} | 分类:{cat} | 热度:{n.get('hot_str','')}")
+        category = n.get("category", "")
+        topic_lines.append(f"{i+1}. {n['word']} | 分类:{category} | 热度:{n.get('hot_str','')}")
 
     topics_text = "\n".join(topic_lines)
     prompt_template = load_prompt("second_filter_prompt")
@@ -383,14 +383,14 @@ def _build_feishu_card(date_str: str, new_topics: list, duplicate_topics: list, 
     
     # 新热点区域
     for i, n in enumerate(new_topics):
-        cat = n.get("category", "")
+        category = n.get("category", "")
         hot = n.get("hot_str", "")
         word = n["word"]
         summary = n.get("summary", "")
 
         elements.append({
             "tag": "div",
-            "text": {"tag": "lark_md", "content": f"**{i+1}.** {word}  `{cat}`  {hot}"}
+            "text": {"tag": "lark_md", "content": f"**{i+1}.** {word}  `{category}`  {hot}"}
         })
 
         # 摘要副行
@@ -406,7 +406,7 @@ def _build_feishu_card(date_str: str, new_topics: list, duplicate_topics: list, 
     if duplicate_topics:
         duplicate_elements = []
         for i, n in enumerate(duplicate_topics):
-            cat = n.get("category", "")
+            category = n.get("category", "")
             hot = n.get("hot_str", "")
             word = n["word"]
             change_str = n.get("hot_change", {}).get("change_str", "")
@@ -421,7 +421,7 @@ def _build_feishu_card(date_str: str, new_topics: list, duplicate_topics: list, 
             else:
                 change_display = ""
 
-            content = f"**{i+1}.** {word}  `{cat}`  {hot} {change_display}"
+            content = f"**{i+1}.** {word}  `{category}`  {hot} {change_display}"
             duplicate_elements.append({
                 "tag": "div",
                 "text": {"tag": "lark_md", "content": content.strip()}

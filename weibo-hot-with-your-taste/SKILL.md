@@ -1,6 +1,6 @@
 ---
 name: weibo-hot-with-your-taste
-description: 抓取微博热榜，根据用户偏好定制化筛选热点话题，通过飞书向用户推送。Agent-First，支持初始化配置用户偏好，支持即时反馈推送话题，支持迭代调研用户偏好，支持筛选过滤特征规则的自优化。关键词：微博热点/个性化推荐/基于反馈的自优化/Agent-First
+description: 抓取微博热榜，根据用户偏好定制化筛选热点话题，通过飞书向用户推送。支持初始化配置用户偏好，支持即时反馈推送话题，支持迭代调研用户偏好，支持筛选过滤特征规则的自优化。关键词：微博热点/个性化推荐/基于反馈的自优化
 ---
 
 # 微博热榜追踪
@@ -23,7 +23,7 @@ weibo-hot-with-your-taste/
 │   ├── survey.py             # 反馈推送：LLM 从未推送话题中召回候选
 │   ├── feedback.py           # 调研偏好：将用户反馈写入 tasted_topics.jsonl
 │   ├── init/
-│   │   ├── feature.py        # 偏好初始化：偏好关键词→话题推荐及配置→召回关键词→特征生成
+│   │   ├── feature.py        # 偏好初始化：设置领域关键词→设置喜欢/不喜欢的话题类型→设置召回关键词→生成特征规则
 │   │   ├── llm_feishu.py      # LLM/飞书凭据配置：写入 .llm.env / .feishu.env
 │   │   ├── weibo_get_qr.py     # 微博登录步骤1：获取二维码，浏览器保持运行
 │   │   └── weibo_wait_login.py  # 微博登录步骤2：等待扫码，保存 Cookie
@@ -36,7 +36,7 @@ weibo-hot-with-your-taste/
 │   │   └── .weibo.env.example
 │   ├── config/
 │   │   ├── base.yaml         # 基础配置（LLM参数、飞书重试策略）
-│   │   ├── rule.yaml         # 规则配置（category_exclude分类排除、keyword_recall关键词反写）
+│   │   ├── rule.yaml         # 规则配置（category_exclude分类排除、recall_keywords召回关键词）
 │   │   ├── prompt.yaml       # LLM prompt 模板（judge_prompt + second_filter_prompt）
 │   │   └── .initialized      # 初始化标记（存在即已初始化）
 │   ├── data/
@@ -61,10 +61,10 @@ weibo-hot-with-your-taste/
 | 脚本 | 职责 |
 |------|------|
 | `init/llm_feishu.py` | 将 LLM/飞书凭据写入 `.llm.env` / `.feishu.env` |
-| `init/feature.py` | 偏好初始化：关键词→语义匹配分类→用户选择→生成 rule.yaml + prompt.yaml |
+| `init/feature.py` | 偏好初始化 | rule.yaml + prompt.yaml |
 | `init/weibo_get_qr.py` | 微博登录步骤1：启动 Chromium headless，获取二维码，浏览器保持运行 |
 | `init/weibo_wait_login.py` | 微博登录步骤2：连接已有浏览器，等待扫码，保存 Cookie 到 `.weibo.env` |
-| `fetch.py` | 抓取微博热榜 → 规则过滤 → 反写 → LLM核校 → 写入 `cached_fetch_meta.jsonl` + `cached_fetch_topics.jsonl`。LLM 成功时仅缓存 important 话题；LLM 失败时候选存入 meta，push 阶段补跑 judge |
+| `fetch.py` | 抓取微博热榜 → 规则过滤 → 规则召回 → LLM核校 → 写入 `cached_fetch_meta.jsonl` + `cached_fetch_topics.jsonl`。LLM 成功时仅缓存 important 话题；LLM 失败时候选存入 meta，push 阶段补跑 judge |
 | `push.py` | 读 meta + topics → 按 word 去重 → 任一 cycle 为 LLM failed 时补跑 judge → 飞书卡片推送。推送后清空两个缓存文件 |
 | `feedback.py` | 接收 --word/--liked 参数，写入 tasted_topics.jsonl |
 | `survey.py` | 计算差集，LLM 召回候选，输出 JSON 到 stdout |
@@ -112,25 +112,16 @@ python3 scripts/init/weibo_wait_login.py
 
 **直接执行上述命令，不要自己重写登录逻辑。** 步骤1以 headless 模式启动 Chromium，QR 图片保存至 `/tmp/weibo_login_qr.png`，浏览器进程保持运行。步骤2连接已有浏览器等待扫码完成，登录后保存 Cookie 至 `.weibo.env` 并关闭浏览器。
 
-> **为什么拆成两步？** agent 执行长连接脚本时容易忘记展示二维码。拆开后 agent 必须先执行步骤1，看到 `qr_ready` 输出后展示二维码给用户，再执行步骤2等待登录。
-
-> **环境要求**：`nodriver >= 0.50`，系统需安装 Chromium 浏览器。
-
-> **常见问题**：
-> - Docker/snap 环境启动失败 → 加 `--no-sandbox` 参数
-> - 指定其他浏览器 → `--browser-path /opt/google/chrome/google-chrome`
-> - 二维码加载失败 → 稍等重试；多次失败可能是 IP 被微博限制，建议手动从浏览器复制 SUB Cookie 写入 `.weibo.env`
-
 Cookie 过期后 fetch 阶段日志会输出警告，重新执行上述命令即可。
 
 #### 2. **筛选特征配置**：
 
 1. 检查 `scripts/config/.initialized` 是否存在
-2. 不存在 → 提示用户："首次使用，需要设置你的偏好。请提供2-5个你最关注的关键词，如：科技、经济、国际时政"
-3. 用户提供关键词 → 执行 `python3 scripts/init/feature.py keywords --kw "关键词1" "关键词2" ...`
-4. 获取 JSON，展示猜你喜欢/猜你不喜欢的分类选项，提示各选至少5个
-5. 用户选择后，询问："是否需要添加召回关键词？当话题被分类排除但包含这些关键词时，会被救回。例如：'AI'、'芯片'。直接回复关键词即可，多个用逗号分隔。回复'不需要'跳过。"
-6. 执行 `python3 scripts/init/feature.py choices --kw "..." --liked "..." --disliked "..." --recall "..."`
+2. 不存在 → 提示用户："首次使用，需要设置你的偏好。请提供2-5个你最关注的领域关键词，如：科技、经济、国际时政"
+3. 用户提供领域关键词 → 执行 `python3 scripts/init/feature.py domain-keywords --domain-kw "关键词1" "关键词2" ...`
+4. 获取 JSON，展示 猜你喜欢/猜你不喜欢 的话题类型选项，提示各选至少5个
+5. 用户选择后，询问："是否需要添加召回关键词？当话题属于用户不喜欢的话题类型但包含召回关键词时，会被救回。例如：'AI'、'芯片'。直接回复关键词即可，多个用逗号分隔。回复'不需要'跳过。"
+6. 执行 `python3 scripts/init/feature.py choices --domain-kw "..." --liked "..." --disliked "..." --recall "..."`
 7. 获取 JSON（`status: "pending_confirm"`），将 LLM 生成的 `yes_criteria` 和 `no_criteria` 展示给用户确认：
 
    ```

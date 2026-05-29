@@ -166,7 +166,7 @@ def load_rule_config() -> dict:
     import yaml
 
     if not RULE_CONFIG_PATH.exists():
-        return {"category_exclude": [], "keyword_recall": []}
+        return {"category_exclude": [], "recall_keywords": []}
     with open(RULE_CONFIG_PATH) as f:
         return yaml.safe_load(f) or {}
 
@@ -197,7 +197,7 @@ def load_judge_prompt() -> str:
     if not prefs:
         # 未初始化时用空值填充偏好变量，避免 format 报错
         return template.format(
-            keywords="未设置",
+            domain_keywords="未设置",
             liked_categories="未设置",
             disliked_categories="未设置",
             recall_keywords="无",
@@ -207,7 +207,7 @@ def load_judge_prompt() -> str:
             topics_count="{topics_count}",
         )
     return template.format(
-        keywords="/".join(prefs.get("keywords", [])),
+        domain_keywords="/".join(prefs.get("domain_keywords", [])),
         liked_categories="、".join(prefs.get("liked_categories", [])),
         disliked_categories="、".join(prefs.get("disliked_categories", [])),
         recall_keywords="、".join(prefs.get("recall_keywords", [])),

@@ -72,13 +72,49 @@ def _check_nodriver():
         sys.exit(1)
 
 
-async def _login(timeout: int = 180) -> dict:
+def _check_environment():
+    """检查运行环境中可能干扰 Chromium 的因素，输出诊断信息"""
+    warnings = []
+
+    # 1. 检查 snap 版 Chromium（沙箱限制可能导致 CDP 连接失败）
+    browser_bin = shutil.which("chromium-browser") or shutil.which("chromium") or ""
+    if browser_bin:
+        real_bin = os.path.realpath(browser_bin)
+        if "/snap/" in real_bin:
+            warnings.append(
+                "检测到 snap 版 Chromium（%s）。snap 沙箱限制可能导致 CDP 连接失败。\n"
+                "  建议: (1) 安装非 snap 版 Chromium，或 (2) 使用 --no-sandbox 参数" % real_bin
+            )
+
+    # 2. 检查 ld.so.preload（安全软件注入可能干扰 Chromium 初始化）
+    preload_path = "/etc/ld.so.preload"
+    if os.path.exists(preload_path):
+        try:
+            with open(preload_path) as f:
+                libs = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+            if libs:
+                warnings.append(
+                    "检测到 /etc/ld.so.preload 中有预加载库: %s\n"
+                    "  这些库可能干扰 Chromium 启动。如果浏览器无法启动，可尝试临时移除。" % ", ".join(libs)
+                )
+        except (OSError, PermissionError):
+            pass
+
+    for w in warnings:
+        logger.warning(w)
+
+
+async def _login(timeout: int = 180, sandbox: bool = True, browser_path: str = "", force_headless: bool = False) -> dict:
     import nodriver as uc
 
-    use_headless = _should_use_headless()
+    use_headless = force_headless if force_headless else _should_use_headless()
     mode = "headless" if use_headless else "headful"
-    logger.info(f"正在启动 Chromium（{mode} 模式）...")
-    browser = await uc.start(headless=use_headless)
+    logger.info(f"正在启动 Chromium（{mode} 模式, sandbox={sandbox}）...")
+    browser = await uc.start(
+        headless=use_headless,
+        sandbox=sandbox,
+        browser_executable_path=browser_path or None,
+    )
     tab = browser.main_tab
 
     await tab.get(LOGIN_URL)
@@ -174,10 +210,25 @@ def main():
     _check_nodriver()
     parser = argparse.ArgumentParser(description="微博登录")
     parser.add_argument("--timeout", type=int, default=180, help="扫码超时（秒）")
+    parser.add_argument("--no-sandbox", dest="sandbox", action="store_false",
+                        help="禁用 Chromium 沙箱（Docker/snap 环境可能需要）")
+    parser.add_argument("--headless", action="store_true",
+                        help="强制使用 headless 模式")
+    parser.add_argument("--browser-path", type=str, default="",
+                        help="指定 Chromium 浏览器路径（默认自动检测）")
     args = parser.parse_args()
 
+    _check_environment()
+
     try:
-        cookie_dict = asyncio.run(_login(timeout=args.timeout))
+        cookie_dict = asyncio.run(
+            _login(
+                timeout=args.timeout,
+                sandbox=args.sandbox,
+                browser_path=args.browser_path,
+                force_headless=args.headless,
+            )
+        )
     except TimeoutError:
         print(json.dumps({"action": "timeout", "message": "登录超时"}, ensure_ascii=False))
         sys.exit(1)

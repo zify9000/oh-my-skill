@@ -15,6 +15,8 @@ import os
 import json
 import asyncio
 import argparse
+import shutil
+import subprocess
 from pathlib import Path
 from urllib.request import urlretrieve
 
@@ -30,10 +32,50 @@ QR_IMAGE_PATH = Path("/tmp/weibo_login_qr.png")
 LOGIN_URL = "https://weibo.com/newlogin?tabtype=weibo&openLoginLayer=1"
 
 
+def _should_use_headless() -> bool:
+    """判断是否应使用 headless 模式。
+
+    检测逻辑：
+    1. DISPLAY 未设置 → headless
+    2. DISPLAY 已设置但 xdpyinfo 探测失败 → headless
+    3. DISPLAY 已设置且 X 服务器可达 → headful
+    """
+    display = os.environ.get("DISPLAY", "")
+    if not display:
+        return True
+    # 检查 X 服务器是否真实可用
+    if shutil.which("xdpyinfo"):
+        try:
+            subprocess.run(
+                ["xdpyinfo", "-display", display],
+                capture_output=True, timeout=5,
+            )
+            return False  # X 服务器可用，使用 headful
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+    # 无法确认 X 服务器可用，回退到 headless
+    return True
+
+
+def _check_nodriver():
+    """检查 nodriver 是否安装，未安装则给出安装提示"""
+    try:
+        import nodriver  # noqa: F401
+    except ImportError:
+        print(
+            "错误: 未安装 nodriver 包。\n"
+            f"请运行: {sys.executable} -m pip install 'nodriver>=0.50'\n"
+            f"当前 Python: {sys.executable}\n"
+            f"注意: 确保使用安装了 nodriver 的 Python 环境（如 miniconda）而非系统 Python。",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 async def _login(timeout: int = 180) -> dict:
     import nodriver as uc
 
-    use_headless = not os.environ.get("DISPLAY")
+    use_headless = _should_use_headless()
     mode = "headless" if use_headless else "headful"
     logger.info(f"正在启动 Chromium（{mode} 模式）...")
     browser = await uc.start(headless=use_headless)
@@ -41,15 +83,19 @@ async def _login(timeout: int = 180) -> dict:
 
     await tab.get(LOGIN_URL)
 
-    # 轮询等待 QR 码出现（网络慢或页面渲染延迟时也能正常工作）
+    # 等待页面 JavaScript 完成初始化（过早 evaluate 会打断 QR 码渲染）
+    await tab.sleep(5)
+
+    # 轮询等待 QR 码出现
     qr_data = {}
     for attempt in range(15):
-        await tab.sleep(2)
+        if attempt > 0:
+            await tab.sleep(2)
         qr_result = await tab.evaluate("""
             (() => {
                 const imgs = document.querySelectorAll('img');
                 for (const img of imgs) {
-                    if (img.src.includes('qr.weibo.cn') && img.width > 50) {
+                    if (img.width > 50 && /(?:v2\\.)?qr\\.weibo\\.cn/.test(img.src)) {
                         return JSON.stringify({found: true, src: img.src});
                     }
                 }
@@ -66,9 +112,16 @@ async def _login(timeout: int = 180) -> dict:
         urlretrieve(qr_data["src"], str(QR_IMAGE_PATH))
         logger.info(f"二维码已保存: {QR_IMAGE_PATH}")
     else:
+        img_count = qr_data.get("total", 0)
+        if img_count > 10:
+            hint = "页面可能加载了微博信息流而非登录页（检测到大量内容图片）。请重试或检查 IP 是否被限制。"
+        elif img_count == 0:
+            hint = "页面未加载任何图片，可能是网络不通或 Chromium 无法渲染页面。"
+        else:
+            hint = "页面已加载但未找到 QR 码图片，可能是微博页面结构发生了变化。"
         raise RuntimeError(
-            f"二维码加载失败：等待 30 秒后仍未找到 (共 {qr_data.get('total', 0)} 张图片)。"
-            f"可能原因：网络不通、页面结构变化、或微博限制了当前 IP。"
+            f"二维码加载失败：等待 {15 * 2 + 5} 秒后仍未找到 (共 {img_count} 张图片)。"
+            f"{hint}"
         )
 
     print(json.dumps({
@@ -118,6 +171,7 @@ def _save(cookie_dict: dict):
 
 
 def main():
+    _check_nodriver()
     parser = argparse.ArgumentParser(description="微博登录")
     parser.add_argument("--timeout", type=int, default=180, help="扫码超时（秒）")
     args = parser.parse_args()
@@ -128,7 +182,10 @@ def main():
         print(json.dumps({"action": "timeout", "message": "登录超时"}, ensure_ascii=False))
         sys.exit(1)
     except Exception as e:
-        logger.error(f"登录失败: {e}")
+        # 同时输出到 stderr 和日志，确保终端可见
+        msg = f"登录失败: {e}"
+        print(msg, file=sys.stderr)
+        logger.error(msg)
         sys.exit(1)
 
     if not cookie_dict.get("SUB"):

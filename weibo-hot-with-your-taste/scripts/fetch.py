@@ -14,7 +14,7 @@ from common import (
     ALL_TOPICS_PATH, RULE_CHECKED_TOPICS_PATH, CATEGORY_STORE_PATH,
     CACHED_FETCH_META_PATH, CACHED_FETCH_TOPICS_PATH,
     setup_logging, load_base_config, load_llm_env, load_weibo_env, load_rule_config, load_judge_prompt, load_prompt,
-    get_llm_creds, get_weibo_cookies, format_hotness, clean_word,
+    get_llm_creds, validate_llm_creds, get_weibo_cookies, format_hotness, clean_word,
 )
 
 logger = setup_logging("fetch")
@@ -240,12 +240,9 @@ def call_llm_judge(topic_items: list, llm_model="", base_url="", api_key="") -> 
     """LLM 首次核校"""
     import openai
 
-    if not api_key:
-        logger.warning("未找到 API_KEY，跳过 LLM 评估")
-        return None
-
-    if not llm_model or not base_url:
-        logger.warning("未配置 llm_model 或 llm_base_url，跳过 LLM 评估")
+    issues = validate_llm_creds(llm_model, base_url, api_key)
+    if issues:
+        logger.warning(f"LLM 凭据异常，跳过评估: {'; '.join(issues)}")
         return None
 
     client = openai.OpenAI(api_key=api_key, base_url=base_url)
@@ -429,6 +426,10 @@ def main():
 
     load_llm_env()
     llm_model, llm_base_url, llm_api_key = get_llm_creds()
+
+    llm_issues = validate_llm_creds(llm_model, llm_base_url, llm_api_key)
+    if llm_issues:
+        logger.warning(f"LLM 凭据异常，将跳过 LLM 核校: {', '.join(llm_issues)}")
 
     try:
         all_raw = fetch_weibo_hot()

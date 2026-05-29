@@ -75,7 +75,7 @@ def _cleanup_old_logs(log_dir: Path, name: str, keep_days: int = 7):
 
 
 def _load_env_file(filename: str):
-    """加载 env 文件中的 key=value 到 os.environ"""
+    """加载 env 文件中的 key=value 到 os.environ，自动展开 ${VAR} 引用"""
     env_path = SCRIPT_DIR / "env" / filename
     if not env_path.exists():
         return
@@ -87,7 +87,8 @@ def _load_env_file(filename: str):
             sep = "=" if "=" in line else (":" if ":" in line else None)
             if sep:
                 k, v = line.split(sep, 1)
-                os.environ[k.strip()] = v.strip().strip('"').strip("'")
+                raw = v.strip().strip('"').strip("'")
+                os.environ[k.strip()] = os.path.expandvars(raw)
 
 
 def load_llm_env():
@@ -140,6 +141,20 @@ def get_llm_creds() -> tuple:
         os.environ.get("llm_base_url", ""),
         os.environ.get("llm_api_key", ""),
     )
+
+
+def validate_llm_creds(llm_model: str, llm_base_url: str, llm_api_key: str) -> list:
+    """校验 LLM 凭据，返回问题列表。空列表表示无问题。"""
+    issues = []
+    if not llm_model:
+        issues.append("llm_model 为空")
+    if not llm_base_url:
+        issues.append("llm_base_url 为空")
+    if not llm_api_key:
+        issues.append("llm_api_key 为空")
+    elif "${" in llm_api_key:
+        issues.append("llm_api_key 包含未展开的 ${...} 变量引用")
+    return issues
 
 
 def get_feishu_creds() -> tuple:

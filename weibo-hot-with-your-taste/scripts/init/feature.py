@@ -14,7 +14,7 @@ import openai
 from common import (
     SCRIPT_DIR, DATA_DIR, CONFIG_DIR,
     CATEGORY_STORE_PATH, RULE_CONFIG_PATH, INITIALIZED_PATH,
-    setup_logging, load_base_config, load_llm_env, load_prompt, resolve_llm_creds,
+    setup_logging, load_base_config, load_llm_env, load_prompt, resolve_llm_creds, validate_llm_creds,
 )
 
 logger = setup_logging("init")
@@ -35,8 +35,9 @@ def load_categories() -> list:
 
 def call_llm_match_categories(domain_keywords: list, categories: list, llm_model="", base_url="", api_key="") -> dict:
     """LLM 根据领域关键词从分类列表中选出 liked/disliked 各10个"""
-    if not api_key or not llm_model or not base_url:
-        logger.error("LLM 配置不完整")
+    issues = validate_llm_creds(llm_model, base_url, api_key)
+    if issues:
+        logger.error(f"LLM 凭据异常: {'; '.join(issues)}")
         sys.exit(1)
 
     domain_kw_str = "、".join(domain_keywords)
@@ -114,8 +115,9 @@ def step_domain_keywords(args):
 
 def call_llm_generate_criteria(domain_keywords, liked, disliked, recall, llm_model="", base_url="", api_key="") -> tuple:
     """LLM 根据用户偏好生成 yes/no 判断标准，返回 (yes_criteria, no_criteria)"""
-    if not api_key or not llm_model or not base_url:
-        logger.error("LLM 配置不完整")
+    issues = validate_llm_creds(llm_model, base_url, api_key)
+    if issues:
+        logger.error(f"LLM 凭据异常: {'; '.join(issues)}")
         sys.exit(1)
 
     domain_kw_str = "、".join(domain_keywords)

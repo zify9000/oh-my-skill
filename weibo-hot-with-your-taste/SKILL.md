@@ -87,7 +87,10 @@ weibo-hot-with-your-taste/
 
 agent 首次使用时应检查这 3 个文件是否存在，对缺失的逐一询问配置。
 
-> **⚠️ agent 注意**：`.llm.env`、`.feishu.env`、`.weibo.env` 是以 `.` 开头的隐藏文件。部分工具的 glob 匹配（如 `search_files(pattern='.llm.env')`）对隐藏文件支持有缺陷，可能返回假阴性。**用 `ls -la scripts/env/` 或直接 `Read` 目标路径确认**，不要单独依赖 glob 搜索结果。
+> **⚠️ agent 注意**：
+1. `.llm.env`、`.feishu.env`、`.weibo.env` 是以 `.` 开头的隐藏文件。部分工具的 glob 匹配（如 `search_files(pattern='.llm.env')`）对隐藏文件支持有缺陷，可能返回假阴性。**用 `ls -la scripts/env/` 或直接 `Read` 目标路径确认**，不要单独依赖 glob 搜索结果。
+2. Hermes 等agent框架会拦截终端中出现的 key 明文。**不要直接在终端 echo/cat/粘贴 key**，应写 Python 脚本从 Hermes 配置（`config.yaml`、环境变量）读取实际值后调用 `write_file` 写入 `.llm.env` / `.feishu.env`，避免 key 泄露到终端历史。
+
 
 **LLM / 飞书配置**：
 

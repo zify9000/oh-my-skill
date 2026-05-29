@@ -25,7 +25,8 @@ weibo-hot-with-your-taste/
 │   ├── init/
 │   │   ├── feature.py        # 偏好初始化：偏好关键词→话题推荐及配置→召回关键词→特征生成
 │   │   ├── llm_feishu.py      # LLM/飞书凭据配置：写入 .llm.env / .feishu.env
-│   │   └── weibo.py            # 微博登录：Chromium headless 扫码，导出完整 Cookie
+│   │   ├── weibo_get_qr.py     # 微博登录步骤1：获取二维码，浏览器保持运行
+│   │   └── weibo_wait_login.py  # 微博登录步骤2：等待扫码，保存 Cookie
 │   ├── env/
 │   │   ├── .llm.env          # LLM 配置（llm_model / llm_base_url / llm_api_key）
 │   │   ├── .llm.env.example
@@ -61,7 +62,8 @@ weibo-hot-with-your-taste/
 |------|------|
 | `init/llm_feishu.py` | 将 LLM/飞书凭据写入 `.llm.env` / `.feishu.env` |
 | `init/feature.py` | 偏好初始化：关键词→语义匹配分类→用户选择→生成 rule.yaml + prompt.yaml |
-| `init/weibo.py` | 微博登录：Chromium headless 扫码，导出完整 Cookie。支持 --no-sandbox（Docker/snap 环境）和 --browser-path（指定浏览器路径） |
+| `init/weibo_get_qr.py` | 微博登录步骤1：启动 Chromium headless，获取二维码，浏览器保持运行 |
+| `init/weibo_wait_login.py` | 微博登录步骤2：连接已有浏览器，等待扫码，保存 Cookie 到 `.weibo.env` |
 | `fetch.py` | 抓取微博热榜 → 规则过滤 → 反写 → LLM核校 → 写入 `cached_fetch_meta.jsonl` + `cached_fetch_topics.jsonl`。LLM 成功时仅缓存 important 话题；LLM 失败时候选存入 meta，push 阶段补跑 judge |
 | `push.py` | 读 meta + topics → 按 word 去重 → 任一 cycle 为 LLM failed 时补跑 judge → 飞书卡片推送。推送后清空两个缓存文件 |
 | `feedback.py` | 接收 --word/--liked 参数，写入 tasted_topics.jsonl |
@@ -81,7 +83,7 @@ weibo-hot-with-your-taste/
 |------|------|
 | `.llm.env` | `llm_model` / `llm_base_url` / `llm_api_key` |
 | `.feishu.env` | `feishu_app_id` / `feishu_app_secret` / `feishu_chat_id` |
-| `.weibo.env` | 微博 Cookie（由 `init/weibo.py` 生成，含 SUB + cookies_json） |
+| `.weibo.env` | 微博 Cookie（由 `init/weibo_get_qr.py` + `init/weibo_wait_login.py` 生成，含 SUB + cookies_json） |
 
 agent 首次使用时应检查这 3 个文件是否存在，对缺失的逐一询问配置。
 
@@ -99,10 +101,18 @@ python3 scripts/init/llm_feishu.py \
 **微博 Cookie 配置**：
 
 ```
-python3 scripts/init/weibo.py
+# 步骤1：获取二维码
+python3 scripts/init/weibo_get_qr.py
+
+# agent 读取 /tmp/weibo_login_qr.png 展示给用户扫码
+
+# 步骤2：等待扫码并保存 Cookie
+python3 scripts/init/weibo_wait_login.py
 ```
 
-**直接执行上述命令，不要自己重写登录逻辑。** 脚本以 headless 模式运行 Chromium，QR 图片保存至 `/tmp/weibo_login_qr.png`。agent 读取该图片展示给用户，用户用微博 App 扫码后自动完成登录并保存 Cookie。
+**直接执行上述命令，不要自己重写登录逻辑。** 步骤1以 headless 模式启动 Chromium，QR 图片保存至 `/tmp/weibo_login_qr.png`，浏览器进程保持运行。步骤2连接已有浏览器等待扫码完成，登录后保存 Cookie 至 `.weibo.env` 并关闭浏览器。
+
+> **为什么拆成两步？** agent 执行长连接脚本时容易忘记展示二维码。拆开后 agent 必须先执行步骤1，看到 `qr_ready` 输出后展示二维码给用户，再执行步骤2等待登录。
 
 > **环境要求**：`nodriver >= 0.50`，系统需安装 Chromium 浏览器。
 
